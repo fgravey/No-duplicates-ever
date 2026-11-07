@@ -192,17 +192,21 @@ foreach ($racine in $Roots) {
         Write-Warning "Racine ignoree (introuvable) : $racine"
         continue
     }
-    $racineAbs = (Resolve-Path -LiteralPath $racine).Path
+    try { $racineAbs = (Resolve-Path -LiteralPath $racine -ErrorAction Stop).Path } catch { Write-Warning "Racine ignoree (introuvable) : $racine"; continue }
     Write-Host "[*] Scan de $racineAbs ..."
-    $fichiers = Get-ChildItem -LiteralPath $racineAbs -Recurse -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { -not (EstCheminIgnore $_.FullName) -and $_.Name -notlike 'rapport_*' -and $_.Name -notin $script:FichiersIgnores }
+    $fichiers = Get-ChildItem -LiteralPath $racineAbs -Recurse -File -Force -ErrorAction SilentlyContinue 2>$null |
+        Where-Object { -not (EstCheminIgnore $_.FullName) -and $_.Name -notlike 'rapport_*' -and $_.Name -notin $script:FichiersIgnores -and $_.Name -notlike '*.log.tmp' }
     $n = 0
     foreach ($f in $fichiers) {
         $n++
         try {
-            $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         } catch {
             $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = $_.Exception.Message }
+            continue
+        }
+        if ([string]::IsNullOrEmpty($h)) {
+            $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = 'hash vide (fichier verrouille ou disparu)' }
             continue
         }
         $texte = Get-TexteFichier $f

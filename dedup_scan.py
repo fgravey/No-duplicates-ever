@@ -21,6 +21,7 @@ L'exemplaire conserve de chaque groupe est marque "CONSERVE EN PLACE" dans le ra
 
 import argparse
 import csv
+import fnmatch
 import hashlib
 import html
 import os
@@ -158,7 +159,7 @@ def scanner_racine(racine, max_content):
     for dirpath, dirnames, filenames in os.walk(racine, followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in DOSSIERS_IGNORES and d not in DOSSIERS_SYSTEME]
         for nom in sorted(filenames):
-            if nom.startswith(NOM_RAPPORT_PREFIX) or nom in FICHIERS_SYSTEME:
+            if nom.startswith(NOM_RAPPORT_PREFIX) or nom in FICHIERS_SYSTEME or fnmatch.fnmatch(nom.lower(), "*.log.tmp"):
                 continue
             chemin = os.path.join(dirpath, nom)
             try:
