@@ -82,7 +82,10 @@ function EstCheminIgnore([string]$path) {
 
 function CheminProtege([string]$chemin) {
     $n = Normaliser $chemin
-    foreach ($p in $Protect) { if ($n.Contains(Normaliser $p)) { return $true } }
+    foreach ($p in $Protect) {
+        $np = Normaliser $p
+        if ($n.Contains($np)) { return $true }
+    }
     return $false
 }
 
@@ -270,8 +273,9 @@ $deplaces = @()
 $clesSig = $sigs.Keys | Sort-Object { ($sigs[$_][0].Dossier -split '\\').Count }
 foreach ($sig in $clesSig) {
     $lst = @($sigs[$sig] | Where-Object {
-        -not ($_.Recs | Where-Object { $_.ToucheNom -or $_.ToucheContenu }) -and
-        -not ($deplaces | Where-Object { EstSousDossier $_.Dossier $_ })
+        $item = $_
+        -not ($item.Recs | Where-Object { $_.ToucheNom -or $_.ToucheContenu }) -and
+        -not ($deplaces | Where-Object { EstSousDossier $item.Dossier $_ })
     })
     if ($lst.Count -lt 2) { continue }
     $lst = @($lst | Sort-Object @{Expression = { -($_.Recs | ForEach-Object { $_.Mtime.Ticks } | Measure-Object -Maximum).Maximum }}, Dossier)
