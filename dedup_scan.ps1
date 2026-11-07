@@ -17,13 +17,16 @@
       ideal pour l'arborescence CHU avec donnees patients.
 
 .EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\dedup_scan.ps1 -Auto -Protect "CHU" -DryRun
     powershell -ExecutionPolicy Bypass -File .\dedup_scan.ps1 -Roots "D:\MesDocuments" -Protect "CHU" -DryRun
     powershell -ExecutionPolicy Bypass -File .\dedup_scan.ps1 -Roots "D:\MesDocuments","D:\OneDrive","D:\ProtonDrive"
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
-    [string[]]$Roots,
+    [Parameter(Position = 0)]
+    [string[]]$Roots = @(),
+
+    [switch]$Auto,
 
     [string[]]$Protect = @(),
 
@@ -37,8 +40,17 @@ param(
 $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 
+if ($Auto) {
+    $Roots = @([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -ne [System.IO.DriveType]::CDRom } | ForEach-Object { $_.Name })
+    Write-Host "[*] Mode -Auto, lecteurs decouverts : $($Roots -join ', ')"
+}
+if (-not $Auto -and $Roots.Count -eq 0) { throw 'Indique -Roots <chemins...> ou -Auto' }
+
 $script:NomsEx = @('elsa', 'eric', 'chantal', 'laetitia', 'estelle', 'josy', 'michelle')
-$script:DossiersIgnores = @('_A_METTRE_DE_COTE', '_DOUBLONS_A_TRIER', '_DOSSIERS_EN_DOUBLE', '_RAPPORT_SCAN')
+$script:DossiersIgnores = @('_A_METTRE_DE_COTE', '_DOUBLONS_A_TRIER', '_DOSSIERS_EN_DOUBLE', '_RAPPORT_SCAN',
+    'Windows', '$Recycle.Bin', 'System Volume Information', 'Program Files', 'Program Files (x86)',
+    'ProgramData', 'MSOCache', 'PerfLogs', 'node_modules', '.git', '__pycache__', '.Trash', 'Caches')
+$script:FichiersIgnores = @('Thumbs.db', '.DS_Store', 'pagefile.sys', 'hiberfil.sys', 'swapfile.sys', 'dumpfile.sys')
 $script:ExtText = @('.txt', '.md', '.csv', '.tsv', '.log', '.eml', '.html', '.htm', '.xml', '.json', '.ini', '.cfg', '.tex', '.srt')
 $script:ExtZip = @('.docx', '.pptx', '.xlsx', '.odt', '.ods', '.epub')
 $script:PatternNoms = '(?<![a-z0-9])(' + (($script:NomsEx | Sort-Object -Descending Length) -join '|') + ')(?![a-z0-9])'
@@ -180,7 +192,7 @@ foreach ($racine in $Roots) {
     $racineAbs = (Resolve-Path -LiteralPath $racine).Path
     Write-Host "[*] Scan de $racineAbs ..."
     $fichiers = Get-ChildItem -LiteralPath $racineAbs -Recurse -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { -not (EstCheminIgnore $_.FullName) -and $_.Name -notlike 'rapport_*' }
+        Where-Object { -not (EstCheminIgnore $_.FullName) -and $_.Name -notlike 'rapport_*' -and $_.Name -notin $script:FichiersIgnores }
     $n = 0
     foreach ($f in $fichiers) {
         $n++

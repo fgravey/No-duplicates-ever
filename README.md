@@ -48,6 +48,29 @@ python3 dedup_scan.py ~/Documents ~/OneDrive ~/ProtonDrive --protect CHU
 python3 dedup_scan.py /Volumes/MonDisqueUSB "/Volumes/Proton Drive" ~/Library/CloudStorage/OneDrive-Personnel
 ```
 
+### Scan total automatique (`--auto` / `-Auto`)
+
+Découvre tout seul les racines à scanner — aucun chemin à taper :
+
+```bash
+# Mac : home + tous les volumes montés (/Volumes/...)
+python3 dedup_scan.py --auto --protect CHU --dry-run
+```
+```powershell
+# PC CHU : tous les lecteurs locaux (C:\, D:\, E:\...)
+powershell -ExecutionPolicy Bypass -File .\dedup_scan.ps1 -Auto -Protect "CHU" -DryRun
+```
+
+Sont exclus automatiquement les dossiers/fichiers système (`Windows`, `Program Files`,
+`$Recycle.Bin`, `System Volume Information`, `pagefile.sys`, `Thumbs.db`, caches…).
+
+**Portée réelle** : le script ne voit que ce qui est **localement accessible** —
+disques internes/externes, et clouds **synchronisés ou montés** (OneDrive/Google Drive
+apparaissent sous le profil utilisateur ou `~/Library/CloudStorage` ; Proton Drive et les
+disques externes sous `/Volumes/...` sur Mac). Un fichier « cloud-only » jamais téléchargé
+n'est pas visible du système de fichiers. Chaque ordinateur doit être scanné **sur place**
+(le script tourne en local sur chaque machine, aucun transfert réseau — conforme DSI).
+
 Options communes : `-DryRun` / `--dry-run` (simule, ne touche à rien),
 `-Protect "CHU"` / `--protect CHU` (racine en **lecture seule** : rapport uniquement —
 recommandé pour toute arborescence contenant des données patients ou internes CHU),

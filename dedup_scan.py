@@ -6,6 +6,7 @@
 
 Usage :
     python3 dedup_scan.py ROOT [ROOT ...] [options]
+    python3 dedup_scan.py --auto [options]   # scan total : tous les disques / home + /Volumes
 
 Options :
     --protect SUBSTR     racine "protegee" si son chemin contient SUBSTR : rapport seul, aucun deplacement
@@ -34,6 +35,12 @@ from datetime import datetime
 
 NOMS_EX = ["elsa", "eric", "chantal", "laetitia", "estelle", "josy", "michelle"]
 DOSSIERS_IGNORES = {"_A_METTRE_DE_COTE", "_DOUBLONS_A_TRIER", "_DOSSIERS_EN_DOUBLE", "_RAPPORT_SCAN"}
+DOSSIERS_SYSTEME = {
+    "Windows", "$Recycle.Bin", "System Volume Information", "Program Files",
+    "Program Files (x86)", "ProgramData", "MSOCache", "PerfLogs",
+    "node_modules", ".git", "__pycache__", ".Trash", "Caches",
+}
+FICHIERS_SYSTEME = {"pagefile.sys", "hiberfil.sys", "swapfile.sys", "dumpfile.sys", "Thumbs.db", ".DS_Store"}
 NOM_RAPPORT_PREFIX = "rapport_"
 
 EXT_TEXT = {
@@ -123,14 +130,35 @@ def extraire_texte(path, ext, max_content):
     return None
 
 
+def decouvrir_racines_auto():
+    racines = []
+    if os.name == "nt":
+        import string
+        for lettre in string.ascii_uppercase:
+            d = f"{lettre}:\\"
+            if os.path.isdir(d):
+                racines.append(d)
+    else:
+        racines.append(os.path.expanduser("~"))
+        volumes = "/Volumes"
+        if os.path.isdir(volumes):
+            for v in sorted(os.listdir(volumes)):
+                if v.startswith(".") or "Macintosh HD" in v:
+                    continue
+                p = os.path.join(volumes, v)
+                if os.path.isdir(p):
+                    racines.append(p)
+    return racines
+
+
 def scanner_racine(racine, max_content):
     enregistrements = []
     erreurs = []
     racine = os.path.abspath(racine)
     for dirpath, dirnames, filenames in os.walk(racine, followlinks=False):
-        dirnames[:] = [d for d in dirnames if d not in DOSSIERS_IGNORES]
+        dirnames[:] = [d for d in dirnames if d not in DOSSIERS_IGNORES and d not in DOSSIERS_SYSTEME]
         for nom in sorted(filenames):
-            if nom.startswith(NOM_RAPPORT_PREFIX):
+            if nom.startswith(NOM_RAPPORT_PREFIX) or nom in FICHIERS_SYSTEME:
                 continue
             chemin = os.path.join(dirpath, nom)
             try:
@@ -154,6 +182,8 @@ def scanner_racine(racine, max_content):
                 })
             except OSError as e:
                 erreurs.append((chemin, str(e)))
+            if len(enregistrements) % 5000 == 0:
+                print(f"    ... {len(enregistrements)} fichiers analyses")
     return enregistrements, erreurs
 
 
@@ -297,12 +327,22 @@ def produire_rapport(repertoire, ts, sections, actions, erreurs, racines, dry_ru
 
 def main():
     ap = argparse.ArgumentParser(description="Scan local : doublons, versions, fichiers a mettre de cote. 100% local, rien n'est supprime.")
-    ap.add_argument("racines", nargs="+", help="Arborescences a scanner")
+    ap.add_argument("racines", nargs="*", help="Arborescences a scanner (ex. /Volumes/MonDisque)")
+    ap.add_argument("--auto", action="store_true", help="Scan total automatique : tous les disques (Windows) ou home + /Volumes (Mac/Linux)")
     ap.add_argument("--protect", action="append", default=[], help="Sous-chaine : racine en lecture seule (rapport seul)")
     ap.add_argument("--dry-run", action="store_true", help="Simule sans rien toucher")
     ap.add_argument("--report-dir", default=None, help="Dossier des rapports (defaut : <racine1>/_RAPPORT_SCAN)")
     ap.add_argument("--max-content", type=int, default=DEFAULT_MAX_CONTENT, help="Taille max lue pour le contenu (octets)")
     args = ap.parse_args()
+
+    if args.auto:
+        auto = decouvrir_racines_auto()
+        print("[*] Mode --auto, racines decouvertes :")
+        for r in auto:
+            print("    " + r)
+        args.racines = list(args.racines) + auto
+    if not args.racines:
+        ap.error("Indique au moins une racine (ex. ~/Documents) ou --auto")
 
     ts = time.strftime("%Y%m%d_%H%M%S")
     tous = []
