@@ -10,7 +10,13 @@ Deux moteurs équivalents :
 
 ## Ce que le scan produit
 
-Rapport **CSV** (s'ouvre dans Excel, accents OK) + **HTML**, écrits dans `_RAPPORT_SCAN/` :
+Rapport **CSV** (s'ouvre dans Excel, accents OK) + **HTML**, écrits dans `_RAPPORT_SCAN/`, **plus** :
+
+- `inventaire_<date>.tsv` — **écrit en continu pendant le scan** (vidé toutes les 1000 entrées) : si le scan plante, tu ne perds rien, chaque fichier déjà traité est là avec son hash ;
+- `checkpoint.tsv` — hash + taille + date de chaque fichier vu. **À la relance, un fichier inchangé n'est pas re-hashé** : les scans successifs sont donc rapides et « reprennent » là où ils en étaient (ton chapitrage). Supprime ce fichier pour tout recalculer from scratch ;
+- `historique_runs.tsv` — une ligne par exécution (date, racines, compteurs, actions).
+
+Contenu du rapport :
 
 1. **Doublons exacts** — comparaison par hash SHA-256 (pas seulement nom/taille).
    Les doublons (sauf un exemplaire conservé, le plus récent) sont **copiés** dans `_DOUBLONS_A_TRIER/`.
