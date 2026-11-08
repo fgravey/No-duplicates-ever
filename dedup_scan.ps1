@@ -230,6 +230,7 @@ foreach ($racine in $Roots) {
 
 if ($tous.Count -eq 0) { Write-Host 'Aucun fichier trouve.'; exit 1 }
 
+Write-Host '[*] Analyse : regroupement par hash, nom, variantes, dossiers dupliques...'
 $sections = [ordered]@{}
 
 $parHash = $tous | Group-Object Sha256 | Where-Object { $_.Count -gt 1 } | Sort-Object { -($_.Group | Measure-Object Taille -Sum).Sum }
@@ -304,6 +305,7 @@ foreach ($g in $parHash) {
 }
 foreach ($dd in $dossiersDoublons) { $conserves[$dd.Keeper.Dossier] = $true }
 
+Write-Host '[*] Actions : ' + ($(if ($DryRun) { 'simulation (dry-run)...' } else { 'application reelle...' }))
 $actions = @()
 $manifestes = @{}
 foreach ($r in $touches) {
@@ -359,6 +361,7 @@ if ([string]::IsNullOrWhiteSpace($ReportDir)) {
 }
 New-Item -ItemType Directory -Path $ReportDir -Force -ErrorAction SilentlyContinue | Out-Null
 
+Write-Host '[*] Ecriture du rapport...'
 $lignes = @()
 foreach ($categorie in $sections.Keys) {
     foreach ($g in $sections[$categorie]) {

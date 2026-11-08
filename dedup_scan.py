@@ -362,6 +362,7 @@ def main():
         print("Aucun fichier trouve.")
         return 1
 
+    print("[*] Analyse : regroupement par hash, nom, variantes, dossiers dupliques...")
     sections = {}
 
     par_hash = groupe_par(tous, lambda r: r["sha256"])
@@ -451,6 +452,7 @@ def main():
 
     manifestes = {os.path.abspath(racine): lire_manifeste(os.path.abspath(racine)) for racine in args.racines}
 
+    print("[*] Actions : " + ("simulation (dry-run)" if args.dry_run else "application reelle") + "...")
     actions = []
     for r in touches:
         if chemin_protege(r["chemin"], args.protect):
@@ -492,6 +494,7 @@ def main():
                 manifestes.setdefault(r["racine"], set()).add(cle)
                 ajouter_manifeste(r["racine"], cle)
 
+    print("[*] Ecriture du rapport...")
     report_dir = args.report_dir or os.path.join(os.path.abspath(args.racines[0]), "_RAPPORT_SCAN")
     csv_path, html_path = produire_rapport(
         report_dir, ts, sections, actions, toutes_erreurs,
