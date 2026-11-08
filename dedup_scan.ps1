@@ -184,6 +184,28 @@ function CheminUnique([string]$dest) {
 }
 
 $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
+if ([string]::IsNullOrWhiteSpace($ReportDir)) {
+    $premiere = $Roots[0]
+    if (-not (Test-Path -LiteralPath $premiere)) { $premiere = (Get-Location).Path }
+    $ReportDir = Join-Path (Resolve-Path -LiteralPath $premiere).Path '_RAPPORT_SCAN'
+}
+New-Item -ItemType Directory -Path $ReportDir -Force -ErrorAction SilentlyContinue | Out-Null
+$ckptPath = Join-Path $ReportDir 'checkpoint.tsv'
+$ckpt = @{}
+if (Test-Path -LiteralPath $ckptPath) {
+    foreach ($ligne in [System.IO.File]::ReadLines($ckptPath)) {
+        $p = $ligne -split "`t", 6
+        if ($p.Count -eq 6) { $ckpt[$p[5]] = @{ Taille = [long]$p[1]; Mtime = [long]$p[2]; Sha = $p[0]; TN = $p[3]; TC = $p[4] } }
+    }
+}
+Write-Host "[*] Checkpoint : $($ckpt.Count) fichiers deja connus (hash reutilise si taille+date identiques)"
+$invPath = Join-Path $ReportDir "inventaire_$ts.tsv"
+if (-not (Test-Path -LiteralPath $invPath)) {
+    Add-Content -LiteralPath $invPath -Value "racine`tchemin`ttaille`tmtime`tsha256`ttouche_nom`ttouche_contenu" -Encoding UTF8
+}
+$invBuf = @()
+$ckBuf = @()
+
 $tous = @()
 $erreurs = @()
 
@@ -199,18 +221,30 @@ foreach ($racine in $Roots) {
     $n = 0
     foreach ($f in $fichiers) {
         $n++
-        try {
-            $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
-        } catch {
-            $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = $_.Exception.Message }
-            continue
+        $e = $ckpt[$f.FullName]
+        if ($null -ne $e -and $e.Taille -eq $f.Length -and $e.Mtime -eq $f.LastWriteTime.ToFileTime()) {
+            $h = $e.Sha
+            $toucheNom = ($e.TN -eq '1')
+            $toucheContenu = ($e.TC -eq '1')
+        } else {
+            try {
+                $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            } catch {
+                $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = $_.Exception.Message }
+                continue
+            }
+            if ([string]::IsNullOrEmpty($h)) {
+                $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = 'hash vide (fichier verrouille ou disparu)' }
+                continue
+            }
+            $texte = Get-TexteFichier $f
+            $nomNorm = Normaliser $f.Name
+            $toucheNom = [bool]([regex]::IsMatch($nomNorm, $script:PatternNoms))
+            $toucheContenu = ($null -ne $texte -and [bool]([regex]::IsMatch((Normaliser $texte), $script:PatternNoms)))
+            $mtimeF = $f.LastWriteTime.ToFileTime()
+            $ckBuf += "$h`t$($f.Length)`t$mtimeF`t$(if ($toucheNom) { 1 } else { 0 })`t$(if ($toucheContenu) { 1 } else { 0 })`t$($f.FullName)"
+            $ckpt[$f.FullName] = @{ Taille = $f.Length; Mtime = $mtimeF; Sha = $h; TN = $(if ($toucheNom) { '1' } else { '0' }); TC = $(if ($toucheContenu) { '1' } else { '0' }) }
         }
-        if ([string]::IsNullOrEmpty($h)) {
-            $erreurs += [pscustomobject]@{ Chemin = $f.FullName; Erreur = 'hash vide (fichier verrouille ou disparu)' }
-            continue
-        }
-        $texte = Get-TexteFichier $f
-        $nomNorm = Normaliser $f.Name
         $tous += [pscustomobject]@{
             Racine = $racineAbs
             Chemin = $f.FullName
@@ -220,11 +254,16 @@ foreach ($racine in $Roots) {
             Taille = $f.Length
             Mtime = $f.LastWriteTime
             Sha256 = $h
-            ToucheNom = [bool]([regex]::IsMatch($nomNorm, $script:PatternNoms))
-            ToucheContenu = ($null -ne $texte -and [bool]([regex]::IsMatch((Normaliser $texte), $script:PatternNoms)))
+            ToucheNom = $toucheNom
+            ToucheContenu = $toucheContenu
         }
+        $invBuf += "$racineAbs`t$($f.FullName)`t$($f.Length)`t$($f.LastWriteTime.ToFileTime())`t$h`t$(if ($toucheNom) { 1 } else { 0 })`t$(if ($toucheContenu) { 1 } else { 0 })"
+        if ($invBuf.Count -ge 1000) { Add-Content -LiteralPath $invPath -Value $invBuf -Encoding UTF8; $invBuf = @() }
+        if ($ckBuf.Count -ge 1000) { Add-Content -LiteralPath $ckptPath -Value $ckBuf -Encoding UTF8; $ckBuf = @() }
         if ($n % 500 -eq 0) { Write-Host "    $n fichiers..." }
     }
+    if ($invBuf.Count -gt 0) { Add-Content -LiteralPath $invPath -Value $invBuf -Encoding UTF8; $invBuf = @() }
+    if ($ckBuf.Count -gt 0) { Add-Content -LiteralPath $ckptPath -Value $ckBuf -Encoding UTF8; $ckBuf = @() }
     Write-Host "    $n fichiers analyses, $($erreurs.Count) erreur(s) au total"
 }
 
@@ -356,11 +395,6 @@ foreach ($g in $parHash) {
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($ReportDir)) {
-    $ReportDir = Join-Path (Resolve-Path -LiteralPath $Roots[0]).Path '_RAPPORT_SCAN'
-}
-New-Item -ItemType Directory -Path $ReportDir -Force -ErrorAction SilentlyContinue | Out-Null
-
 Write-Host '[*] Ecriture du rapport...'
 $lignes = @()
 foreach ($categorie in $sections.Keys) {
@@ -420,5 +454,15 @@ Write-Host "Groupes variantes         : $($sections['VARIANTES DE NOM (v2, final
 Write-Host "Fichiers a mettre de cote : $($touches.Count)"
 Write-Host "Actions                   : $($actions.Count) $(if ($DryRun) { '(SIMULATION)' })"
 Write-Host "Erreurs de lecture        : $($erreurs.Count)"
+$histPath = Join-Path $ReportDir 'historique_runs.tsv'
+$nouveauHist = -not (Test-Path -LiteralPath $histPath)
+if ($nouveauHist) {
+    Add-Content -LiteralPath $histPath -Value "ts`tracines`tfichiers`tgroupes_doublons`tdossiers_doublons`tmemes_noms`tvariantes`tfichiers_a_cote`tactions`terreurs`tdry_run" -Encoding UTF8
+}
+Add-Content -LiteralPath $histPath -Value "$ts`t$($Roots -join ';')`t$($tous.Count)`t$($parHash.Count)`t$($dossiersDoublons.Count)`t$($sections['MEMES NOMS, CONTENUS DIFFERENTS (versions)'].Count)`t$($sections['VARIANTES DE NOM (v2, final, copie, (1), dates...)'].Count)`t$($touches.Count)`t$($actions.Count)`t$($erreurs.Count)`t$($DryRun.IsPresent)" -Encoding UTF8
+
 Write-Host "Rapport CSV               : $csvPath"
 Write-Host "Rapport HTML              : $htmlPath"
+Write-Host "Inventaire (continu)      : $invPath"
+Write-Host "Checkpoint (reprise)      : $ckptPath"
+Write-Host "Historique des runs       : $histPath"

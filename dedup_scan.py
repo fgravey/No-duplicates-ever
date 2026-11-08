@@ -17,6 +17,12 @@ Options :
 Actions : fichiers tagues -> _A_METTRE_DE_COTE (deplacement, jamais de suppression),
 dossiers entierement dupliques -> _DOSSIERS_EN_DOUBLE, doublons fichier -> _DOUBLONS_A_TRIER (copie).
 L'exemplaire conserve de chaque groupe est marque "CONSERVE EN PLACE" dans le rapport.
+
+Sorties dans le dossier de rapport :
+- inventaire_<ts>.tsv : ecrit en continu pendant le scan (resiste a un crash)
+- checkpoint.tsv      : hash/taille/date des fichiers deja vus ; une relance les reutilise
+                        (fichier inchange = pas de rehash). Supprime-le pour tout recalculer.
+- historique_runs.tsv : une ligne par execution (le "chapitrage" des scans successifs)
 """
 
 import argparse
@@ -152,9 +158,30 @@ def decouvrir_racines_auto():
     return racines
 
 
-def scanner_racine(racine, max_content):
+def charger_checkpoint(path):
+    ckpt = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig", errors="ignore") as f:
+            for ligne in f:
+                parties = ligne.rstrip("\n").split("\t", 5)
+                if len(parties) == 6:
+                    sha, taille, mtime, tn, tc, chemin = parties
+                    try:
+                        ckpt[chemin] = {
+                            "taille": int(taille), "mtime": int(float(mtime)), "sha256": sha,
+                            "touche_nom": tn == "1", "touche_contenu": tc == "1",
+                        }
+                    except ValueError:
+                        continue
+    return ckpt
+
+
+def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier=None):
     enregistrements = []
     erreurs = []
+    ckpt = ckpt if ckpt is not None else {}
+    tampon_inv = []
+    tampon_ck = []
     racine = os.path.abspath(racine)
     for dirpath, dirnames, filenames in os.walk(racine, followlinks=False):
         dirnames[:] = [d for d in dirnames if d not in DOSSIERS_IGNORES and d not in DOSSIERS_SYSTEME]
@@ -167,8 +194,18 @@ def scanner_racine(racine, max_content):
                 if not os.path.isfile(chemin):
                     continue
                 ext = os.path.splitext(nom)[1].lower()
-                h = sha256_fichier(chemin)
-                texte = extraire_texte(chemin, ext, max_content) if ext in (EXT_TEXT | EXT_ZIP_XML | EXT_PDF) else None
+                entree = ckpt.get(chemin)
+                if entree and entree["taille"] == st.st_size and entree["mtime"] == int(st.st_mtime):
+                    h = entree["sha256"]
+                    tn = entree["touche_nom"]
+                    tc = entree["touche_contenu"]
+                else:
+                    h = sha256_fichier(chemin)
+                    texte = extraire_texte(chemin, ext, max_content) if ext in (EXT_TEXT | EXT_ZIP_XML | EXT_PDF) else None
+                    tn = bool(PATTERN_NOMS.search(normaliser(nom)))
+                    tc = bool(texte and PATTERN_NOMS.search(normaliser(texte)))
+                    tampon_ck.append(f'{h}\t{st.st_size}\t{int(st.st_mtime)}\t{1 if tn else 0}\t{1 if tc else 0}\t{chemin}')
+                    ckpt[chemin] = {"taille": st.st_size, "mtime": int(st.st_mtime), "sha256": h, "touche_nom": tn, "touche_contenu": tc}
                 enregistrements.append({
                     "racine": racine,
                     "chemin": chemin,
@@ -178,13 +215,29 @@ def scanner_racine(racine, max_content):
                     "taille": st.st_size,
                     "mtime": st.st_mtime,
                     "sha256": h,
-                    "touche_nom": bool(PATTERN_NOMS.search(normaliser(nom))),
-                    "touche_contenu": bool(texte and PATTERN_NOMS.search(normaliser(texte))),
+                    "touche_nom": tn,
+                    "touche_contenu": tc,
                 })
+                if inventaire is not None:
+                    tampon_inv.append(f'{racine}\t{chemin}\t{st.st_size}\t{int(st.st_mtime)}\t{h}\t{1 if tn else 0}\t{1 if tc else 0}')
+                if inventaire is not None and len(tampon_inv) >= 1000:
+                    inventaire.write("\n".join(tampon_inv) + "\n")
+                    inventaire.flush()
+                    tampon_inv = []
+                if ckpt_fichier is not None and len(tampon_ck) >= 1000:
+                    ckpt_fichier.write("\n".join(tampon_ck) + "\n")
+                    ckpt_fichier.flush()
+                    tampon_ck = []
             except OSError as e:
                 erreurs.append((chemin, str(e)))
             if len(enregistrements) % 5000 == 0:
                 print(f"    ... {len(enregistrements)} fichiers analyses")
+    if inventaire is not None and tampon_inv:
+        inventaire.write("\n".join(tampon_inv) + "\n")
+        inventaire.flush()
+    if ckpt_fichier is not None and tampon_ck:
+        ckpt_fichier.write("\n".join(tampon_ck) + "\n")
+        ckpt_fichier.flush()
     return enregistrements, erreurs
 
 
@@ -346,6 +399,16 @@ def main():
         ap.error("Indique au moins une racine (ex. ~/Documents) ou --auto")
 
     ts = time.strftime("%Y%m%d_%H%M%S")
+    report_dir = args.report_dir or os.path.join(os.path.abspath(args.racines[0]), "_RAPPORT_SCAN")
+    os.makedirs(report_dir, exist_ok=True)
+    ckpt_path = os.path.join(report_dir, "checkpoint.tsv")
+    ckpt = charger_checkpoint(ckpt_path)
+    print(f"[*] Checkpoint : {len(ckpt)} fichiers deja connus (hash reutilise si taille+date identiques)")
+    inv_path = os.path.join(report_dir, f"inventaire_{ts}.tsv")
+    inventaire = open(inv_path, "a", encoding="utf-8")
+    if inventaire.tell() == 0:
+        inventaire.write("racine\tchemin\ttaille\tmtime\tsha256\ttouche_nom\ttouche_contenu\n")
+    ckpt_fichier = open(ckpt_path, "a", encoding="utf-8")
     tous = []
     toutes_erreurs = []
     for racine in args.racines:
@@ -353,10 +416,12 @@ def main():
             print(f"[!] Racine ignoree (introuvable) : {racine}", file=sys.stderr)
             continue
         print(f"[*] Scan de {racine} ...")
-        recs, errs = scanner_racine(racine, args.max_content)
+        recs, errs = scanner_racine(racine, args.max_content, ckpt, inventaire, ckpt_fichier)
         tous.extend(recs)
         toutes_erreurs.extend(errs)
         print(f"    {len(recs)} fichiers, {len(errs)} erreur(s)")
+    inventaire.close()
+    ckpt_fichier.close()
 
     if not tous:
         print("Aucun fichier trouve.")
@@ -495,7 +560,6 @@ def main():
                 ajouter_manifeste(r["racine"], cle)
 
     print("[*] Ecriture du rapport...")
-    report_dir = args.report_dir or os.path.join(os.path.abspath(args.racines[0]), "_RAPPORT_SCAN")
     csv_path, html_path = produire_rapport(
         report_dir, ts, sections, actions, toutes_erreurs,
         [os.path.abspath(r) for r in args.racines], args.dry_run, args.protect, conserves,
@@ -510,8 +574,17 @@ def main():
     print(f"Fichiers a mettre de cote : {len(touches)}")
     print(f"Actions                 : {len(actions)} {'(SIMULATION)' if args.dry_run else ''}")
     print(f"Erreurs de lecture      : {len(toutes_erreurs)}")
+    hist_path = os.path.join(report_dir, "historique_runs.tsv")
+    nouveau_hist = not os.path.exists(hist_path) or os.path.getsize(hist_path) == 0
+    with open(hist_path, "a", encoding="utf-8") as f:
+        if nouveau_hist:
+            f.write("ts\tracines\tfichiers\tgroupes_doublons\tdossiers_doublons\tmemes_noms\tvariantes\tfichiers_a_cote\tactions\terreurs\tdry_run\n")
+        f.write(f"{ts}\t{';'.join(os.path.abspath(r) for r in args.racines)}\t{len(tous)}\t{len(doublons)}\t{len(dossiers_doublons)}\t{len(memes_noms)}\t{len(variantes)}\t{len(touches)}\t{len(actions)}\t{len(toutes_erreurs)}\t{args.dry_run}\n")
     print(f"Rapport CSV             : {csv_path}")
     print(f"Rapport HTML            : {html_path}")
+    print(f"Inventaire (continu)    : {inv_path}")
+    print(f"Checkpoint (reprise)    : {ckpt_path}")
+    print(f"Historique des runs     : {hist_path}")
     return 0
 
 
