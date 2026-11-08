@@ -164,6 +164,16 @@ function EstSousDossier([string]$chemin, [string]$racine) {
     return ($chemin -eq $racine) -or $chemin.StartsWith($racine + '\')
 }
 
+function EstCouvert([string]$chemin, $set) {
+    $p = $chemin
+    while ($true) {
+        if ($set.ContainsKey($p)) { return $true }
+        $parent = Split-Path -Parent $p
+        if ([string]::IsNullOrEmpty($parent) -or $parent -eq $p) { return $false }
+        $p = $parent
+    }
+}
+
 function New-RecDossier($item, [string]$sig) {
     [pscustomobject]@{
         Chemin = $item.Dossier
@@ -314,19 +324,20 @@ foreach ($g in $parDossier) {
 
 $dossiersDoublons = @()
 $deplaces = @()
+$deplacesSet = @{}
 $clesSig = $sigs.Keys | Sort-Object { ($sigs[$_][0].Dossier -split '\\').Count }
 foreach ($sig in $clesSig) {
     $lst = @($sigs[$sig] | Where-Object {
         $item = $_
         -not ($item.Recs | Where-Object { $_.ToucheNom -or $_.ToucheContenu }) -and
-        -not ($deplaces | Where-Object { EstSousDossier $item.Dossier $_ })
+        -not (EstCouvert $item.Dossier $deplacesSet)
     })
     if ($lst.Count -lt 2) { continue }
     $lst = @($lst | Sort-Object @{Expression = { -($_.Recs | ForEach-Object { $_.Mtime.Ticks } | Measure-Object -Maximum).Maximum }}, Dossier)
     $keeper = $lst[0]
     $rest = @($lst[1..($lst.Count - 1)])
     $dossiersDoublons += [pscustomobject]@{ Sig = $sig; Keeper = $keeper; Rest = $rest }
-    $deplaces += $rest | ForEach-Object { $_.Dossier }
+    foreach ($it in $rest) { $deplaces += $it.Dossier; $deplacesSet[$it.Dossier] = $true }
 }
 
 $sections['DOSSIERS ENTIEREMENT DUPLIQUES (contenu identique ailleurs)'] = @(
@@ -379,7 +390,7 @@ foreach ($g in $parHash) {
         if (CheminProtege $r.Chemin) { continue }
         if ($r.ToucheNom -or $r.ToucheContenu) { continue }
         if (-not (Test-Path -LiteralPath $r.Chemin)) { continue }
-        if ($deplaces | Where-Object { $r.Chemin.StartsWith($_ + '\') }) { continue }
+        if (EstCouvert $r.Chemin $deplacesSet) { continue }
         if (-not $manifestes.ContainsKey($r.Racine)) { $manifestes[$r.Racine] = @(Lire-Manifeste $r.Racine) }
         $cle = "$($r.Sha256)`t$($r.Chemin)"
         if ($manifestes[$r.Racine] -contains $cle) { continue }
@@ -396,11 +407,13 @@ foreach ($g in $parHash) {
 }
 
 Write-Host '[*] Ecriture du rapport...'
+$actionsParSource = @{}
+foreach ($a in $actions) { if (-not $actionsParSource.ContainsKey($a.Source)) { $actionsParSource[$a.Source] = $a } }
 $lignes = @()
 foreach ($categorie in $sections.Keys) {
     foreach ($g in $sections[$categorie]) {
         foreach ($r in $g.Fichiers) {
-            $act = $actions | Where-Object { $_.Source -eq $r.Chemin } | Select-Object -First 1
+            $act = $actionsParSource[$r.Chemin]
             $lignes += [pscustomobject]@{
                 Categorie = $categorie
                 Groupe = $g.Groupe

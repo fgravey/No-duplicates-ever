@@ -308,6 +308,9 @@ def ajouter_manifeste(racine, cle):
 
 def produire_rapport(repertoire, ts, sections, actions, erreurs, racines, dry_run, protects, conserves=None):
     conserves = conserves or set()
+    actions_par_source = {}
+    for a in actions:
+        actions_par_source.setdefault(a["source"], a)
     os.makedirs(repertoire, exist_ok=True)
     csv_path = os.path.join(repertoire, f"rapport_{ts}.csv")
     html_path = os.path.join(repertoire, f"rapport_{ts}.html")
@@ -318,7 +321,7 @@ def produire_rapport(repertoire, ts, sections, actions, erreurs, racines, dry_ru
         for categorie, groupes in sections.items():
             for gname, fichiers in groupes:
                 for r in fichiers:
-                    act = next((a for a in actions if a["source"] == r["chemin"]), None)
+                    act = actions_par_source.get(r["chemin"])
                     if act:
                         action_txt = act["raison"] + (" (SIMULATION)" if act["simulation"] else "")
                         dest_txt = act["destination"]
@@ -466,6 +469,16 @@ def main():
     def est_sous(chemin, racine):
         return chemin == racine or chemin.startswith(racine + os.sep)
 
+    def est_couvert(chemin, deplaces_set):
+        p = chemin
+        while True:
+            if p in deplaces_set:
+                return True
+            parent = os.path.dirname(p)
+            if parent == p:
+                return False
+            p = parent
+
     par_dossier = {}
     for r in tous:
         par_dossier.setdefault(os.path.dirname(r["chemin"]), []).append(r)
@@ -483,18 +496,21 @@ def main():
 
     dossiers_doublons = []
     deplaces = []
+    deplaces_set = set()
     for sig, lst in sorted(sigs.items(), key=lambda kv: min(len(d) for d, _ in kv[1])):
         lst = [
             (d, recs) for d, recs in lst
             if not any(r["touche_nom"] or r["touche_contenu"] for r in recs)
-            and not any(est_sous(d, dep) for dep in deplaces)
+            and not est_couvert(d, deplaces_set)
         ]
         if len(lst) < 2:
             continue
         lst.sort(key=lambda item: (-max(r["mtime"] for r in item[1]), item[0]))
         keeper, rest = lst[0], lst[1:]
         dossiers_doublons.append((sig, keeper, rest))
-        deplaces.extend(d for d, _ in rest)
+        for d, _ in rest:
+            deplaces.append(d)
+            deplaces_set.add(d)
 
     def rec_dossier(d, recs, sig):
         return {
@@ -514,6 +530,7 @@ def main():
 
     conserves = {sorted(rs, key=lambda r: (-r["mtime"], r["chemin"]))[0]["chemin"] for _, rs in doublons}
     conserves.update(keeper[0] for _, keeper, _ in dossiers_doublons)
+    deplaces_fichiers = deplaces_set
 
     manifestes = {os.path.abspath(racine): lire_manifeste(os.path.abspath(racine)) for racine in args.racines}
 
@@ -549,7 +566,7 @@ def main():
                 continue
             if r["chemin"] in partis_en_quarantaine or not os.path.exists(r["chemin"]):
                 continue
-            if any(est_sous(r["chemin"], dep) for dep in deplaces):
+            if est_couvert(r["chemin"], deplaces_fichiers):
                 continue
             cle = f'{r["sha256"]}\t{r["chemin"]}'
             if cle in manifestes.get(r["racine"], set()):
