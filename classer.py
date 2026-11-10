@@ -27,6 +27,12 @@ import sys
 import time
 import unicodedata
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dedup_scan import extraire_texte, EXT_TEXT, EXT_ZIP_XML, EXT_PDF  # reutilise l'extraction de texte
+
+EXT_TEXTE_CLASSEMENT = EXT_TEXT | EXT_ZIP_XML | EXT_PDF
+MAX_CONTENU = 5 * 1024 * 1024  # 5 Mo max lus par fichier pour les regles "contenu"
+
 DOSSIERS_TRI = {"_a_mettre_de_cote", "_doublons_a_trier", "_dossiers_en_double", "_rapport_scan", "_tri_dedup_scan"}
 
 # Donnees CHU/patients : ne jamais monter vers un cloud
@@ -66,6 +72,12 @@ def charger_regles(path):
     return regles
 
 
+def motif_regex(motif):
+    # mot entier, insensible casse/accents, pluriel en s toléré :
+    # "cours" ne matche pas "parcours", "impot" matche "impots"
+    return re.compile(r"(?<![a-z0-9])" + re.escape(normaliser(motif)) + r"s?(?![a-z0-9])")
+
+
 def classer(chemin, racine, regles, defaut):
     segments = {normaliser(s) for s in chemin.split(os.sep)}
     if segments & DOSSIERS_TRI:
@@ -76,13 +88,31 @@ def classer(chemin, racine, regles, defaut):
             return ("CHU", "securite CHU", "A_TRAITER_MANUELLEMENT (donnees CHU/patients dans un cloud : a remettre sur le PC CHU, jamais vers Proton/OneDrive perso)")
         return "CHU", "securite CHU", "RESTE_EN_PLACE (local)"
     nom = normaliser(os.path.basename(chemin))
+    dossiers = [normaliser(s) for s in chemin.split(os.sep)[:-1]]
+    texte = None
     for cat, type_, motif, dest in regles:
-        m = normaliser(motif)
-        if type_ == "chemin" and m in n:
+        if type_ == "contenu":
+            if texte is None:
+                ext = os.path.splitext(chemin)[1].lower()
+                try:
+                    taille = os.path.getsize(chemin)
+                except OSError:
+                    taille = 0
+                if ext in EXT_TEXTE_CLASSEMENT and 0 < taille <= MAX_CONTENU:
+                    texte = normaliser(extraire_texte(chemin, ext, MAX_CONTENU) or "")
+                else:
+                    texte = ""
+            if texte and motif_regex(motif).search(texte):
+                return cat, "contenu:" + motif, dest
+            continue
+        rx = motif_regex(motif)
+        if type_ == "chemin" and rx.search(n):
             return cat, motif, dest
-        if type_ == "nom" and m in nom:
+        if type_ == "dossier" and any(rx.search(d) for d in dossiers):
+            return cat, "dossier:" + motif, dest
+        if type_ == "nom" and rx.search(nom):
             return cat, motif, dest
-        if type_ == "ext" and chemin.lower().endswith(m):
+        if type_ == "ext" and chemin.lower().endswith(normaliser(motif)):
             return cat, motif, dest
     return "PAR_DEFAUT", "-", defaut
 

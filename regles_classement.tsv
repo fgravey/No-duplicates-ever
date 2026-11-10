@@ -1,23 +1,76 @@
 # Règles de classement — classer.py
 # Format : categorie<TAB>type<TAB>motif<TAB>destination
-#   type        : chemin (dans tout le chemin) | nom (dans le nom de fichier) | ext (extension)
-#   destination : ONEDRIVE | PROTON | LOCAL_CHU | REVUE (signalé, non déplacé)
-# Insensible à la casse et aux accents. La première règle qui matche gagne.
-# SÉCURITÉ : tout chemin contenant chu / patient / dossier médical est traité AVANT
-# ces règles et ne monte JAMAIS vers un cloud.
-#
-# --- Exemples université (à adapter à tes habitudes de nommage) ---
-universite	chemin	unicaen	ONEDRIVE
-university	chemin	UFR	ONEDRIVE
-enseignement	chemin	cours	ONEDRIVE
-enseignement	nom	TD	ONEDRIVE
-enseignement	nom	sémiologie	ONEDRIVE
-enseignement	chemin	PACES	ONEDRIVE
-recherche	chemin	these	ONEDRIVE
-recherche	chemin	mémoire	ONEDRIVE
-recherche	chemin	congrès	ONEDRIVE
-admin_univ	chemin	CHU de Caen	ONEDRIVE
-# --- Exemples personnel ---
-perso	nom	elior	PROTON
-# --- Par défaut si rien ne matche : lance avec --default PROTON pour tout envoyer sur Proton,
-#     ou laisse REVUE (comportement par défaut) pour ne déplacer que ce qui matche une règle.
+#   type        : chemin (tout le chemin) | dossier (un nom de dossier du chemin)
+#               | nom (nom du fichier) | contenu (texte extrait du fichier: txt, md, csv,
+#                 docx, pptx, xlsx, odt, pdf, eml, html...; 5 Mo max par fichier)
+#               | ext (extension)
+#   destination : ONEDRIVE | PROTON | LOCAL_CHU | REVUE
+# Mot entier, insensible casse/accents ("cours" ne matche PAS "parcours").
+# La première règle qui matche gagne. Édite librement cette liste.
+# SÉCURITÉ : chu / patient / dossier médical est traité AVANT et ne monte jamais vers un cloud.
+
+# ============ TRAVAIL / UNIVERSITÉ -> ONEDRIVE ============
+# (termes réellement présents dans tes chemins + usuels)
+recherche	dossier	these	ONEDRIVE
+recherche	dossier	doctorat	ONEDRIVE
+recherche	dossier	bioinfo	ONEDRIVE
+recherche	dossier	bacterie	ONEDRIVE
+recherche	nom	bacterie	ONEDRIVE
+recherche	contenu	bacterie	ONEDRIVE
+recherche	dossier	antibiogramme	ONEDRIVE
+recherche	dossier	epidemiologie	ONEDRIVE
+recherche	dossier	resistome	ONEDRIVE
+recherche	dossier	virulence	ONEDRIVE
+recherche	dossier	phages	ONEDRIVE
+recherche	dossier	genome	ONEDRIVE
+recherche	dossier	mlst	ONEDRIVE
+recherche	dossier	vitek	ONEDRIVE
+recherche	dossier	klebsiella	ONEDRIVE
+recherche	dossier	ecoli	ONEDRIVE
+recherche	dossier	listeria	ONEDRIVE
+recherche	dossier	campylobacter	ONEDRIVE
+recherche	dossier	pasteur	ONEDRIVE
+recherche	dossier	fasta	ONEDRIVE
+recherche	dossier	blast	ONEDRIVE
+recherche	dossier	resfinder	ONEDRIVE
+recherche	dossier	chewbbaca	ONEDRIVE
+recherche	nom	plasmidfinder	ONEDRIVE
+enseignement	dossier	cours	ONEDRIVE
+enseignement	dossier	medecine	ONEDRIVE
+enseignement	dossier	enseignement	ONEDRIVE
+enseignement	dossier	encadrement	ONEDRIVE
+enseignement	dossier	internat	ONEDRIVE
+enseignement	dossier	master	ONEDRIVE
+admin_univ	dossier	publications	ONEDRIVE
+admin_univ	dossier	zotero	ONEDRIVE
+admin_univ	dossier	biblio	ONEDRIVE
+admin_univ	chemin	unicaen	ONEDRIVE
+projets	dossier	projet	ONEDRIVE
+projets	dossier	communications	ONEDRIVE
+
+# ============ PERSONNEL / ADMINISTRATIF -> PROTON ============
+perso	dossier	impots	PROTON
+perso	nom	impots	PROTON
+perso	contenu	impot	PROTON
+perso	dossier	banque	PROTON
+perso	dossier	bancaire	PROTON
+perso	dossier	releve	PROTON
+perso	dossier	loyer	PROTON
+perso	dossier	bail	PROTON
+perso	dossier	assurance	PROTON
+perso	dossier	mutuelle	PROTON
+perso	dossier	secu	PROTON
+perso	dossier	facture	PROTON
+perso	dossier	edf	PROTON
+perso	dossier	vacances	PROTON
+perso	dossier	voyage	PROTON
+perso	dossier	voiture	PROTON
+perso	dossier	garage	PROTON
+perso	dossier	passeport	PROTON
+perso	dossier	identite	PROTON
+perso	dossier	permis	PROTON
+perso	nom	photo	PROTON
+perso	dossier	chiot	PROTON
+
+# Par défaut si aucune règle ne matche : REVUE (rien n'est déplacé)
+# -> lance avec --default PROTON pour envoyer tout le reste sur Proton.
