@@ -88,6 +88,8 @@ recommandé pour toute arborescence contenant des données patients ou internes 
 - Les dossiers `_A_METTRE_DE_COTE`, `_DOUBLONS_A_TRIER`, `_DOSSIERS_EN_DOUBLE`, `_RAPPORT_SCAN` sont exclus du scan (les relances sont propres).
 - Fichiers illisibles : listés dans le rapport (section ERREUR), jamais bloquants.
 - Collisions de noms en destination : suffixe `__1`, `__2`…
+- Si une racine est non inscriptible (ex. racine d'un cloud File Provider comme Google Drive dans `~/Library/CloudStorage`), les dossiers de tri basculent automatiquement dans **`~/_TRI_DEDUP_SCAN/`** ; chaque action en échec est marquée `ECHEC` dans le rapport et **n'arrête jamais le scan**.
+- Un scan interrompu (Ctrl+C, crash) ne perd rien : inventaire + checkpoint déjà écrits ; une relance est idempotente.
 - Le CSV est en UTF-8 avec BOM pour un affichage correct des accents dans Excel.
 
 ## Organisation ensuite

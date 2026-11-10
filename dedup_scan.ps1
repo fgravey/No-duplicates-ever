@@ -183,6 +183,24 @@ function New-RecDossier($item, [string]$sig) {
     }
 }
 
+function Action-FS([string]$racine, [string]$dossierCible, [string]$relatif, [scriptblock]$operation, [string]$src, [switch]$DryRun) {
+    # Essaie la racine, puis repli ~/_TRI_DEDUP_SCAN (ex. racine cloud File Provider non inscriptible).
+    # Retourne (destination, erreur) ; un echec ne doit jamais arreter le scan.
+    $bases = @(Join-Path $racine $dossierCible)
+    if (-not $DryRun) { $bases += (Join-Path $env:USERPROFILE ("_TRI_DEDUP_SCAN\$dossierCible")) }
+    $derniereErreur = $null
+    foreach ($base in $bases) {
+        $dest = CheminUnique (Join-Path $base $relatif)
+        if ($DryRun) { return $dest, $null }
+        try {
+            New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($dest)) -Force -ErrorAction Stop | Out-Null
+            & $operation $src $dest
+            return $dest, $null
+        } catch { $derniereErreur = $_.Exception.Message }
+    }
+    return $null, "ecriture refusee (racine et ~/_TRI_DEDUP_SCAN) : $derniereErreur"
+}
+
 function CheminUnique([string]$dest) {
     if (-not (Test-Path -LiteralPath $dest)) { return $dest }
     $base = [System.IO.Path]::GetFileNameWithoutExtension($dest)
@@ -360,13 +378,8 @@ $actions = @()
 $manifestes = @{}
 foreach ($r in $touches) {
     if (CheminProtege $r.Chemin) { continue }
-    $destDir = Join-Path $r.Racine '_A_METTRE_DE_COTE'
-    $dest = CheminUnique (Join-Path $destDir $r.Relatif)
-    if (-not $DryRun) {
-        New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($dest)) -Force -ErrorAction SilentlyContinue | Out-Null
-        Move-Item -LiteralPath $r.Chemin -Destination $dest -Force
-    }
-    $actions += [pscustomobject]@{ Raison = 'nom/contenu ex-partenaire' + ($(if ($DryRun) { ' (SIMULATION)' })); Source = $r.Chemin; Destination = $dest; Sha256 = $r.Sha256 }
+    $dest, $err = Action-FS $r.Racine '_A_METTRE_DE_COTE' $r.Relatif { param($s, $d) Move-Item -LiteralPath $s -Destination $d -Force -ErrorAction Stop } $r.Chemin -DryRun:$DryRun
+    $actions += [pscustomobject]@{ Raison = 'nom/contenu ex-partenaire' + ($(if ($DryRun) { ' (SIMULATION)' } else { '' })) + ($(if ($err) { " ECHEC: $err" } else { '' })); Source = $r.Chemin; Destination = $dest; Sha256 = $r.Sha256; Statut = $(if ($err) { 'ECHEC' } else { 'OK' }) }
 }
 
 foreach ($dd in $dossiersDoublons) {
@@ -374,12 +387,8 @@ foreach ($dd in $dossiersDoublons) {
         $d = $item.Dossier
         if (CheminProtege $d) { continue }
         $racine = $item.Recs[0].Racine
-        $dest = CheminUnique (Join-Path (Join-Path $racine '_DOSSIERS_EN_DOUBLE') (Split-Path -Leaf $d))
-        if (-not $DryRun) {
-            New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($dest)) -Force -ErrorAction SilentlyContinue | Out-Null
-            Move-Item -LiteralPath $d -Destination $dest -Force
-        }
-        $actions += [pscustomobject]@{ Raison = "dossier entierement doublon de $($dd.Keeper.Dossier)" + ($(if ($DryRun) { ' (SIMULATION)' })); Source = $d; Destination = $dest; Sha256 = $dd.Sig }
+        $dest, $err = Action-FS $racine '_DOSSIERS_EN_DOUBLE' (Split-Path -Leaf $d) { param($s, $dd) Move-Item -LiteralPath $s -Destination $dd -Force -ErrorAction Stop } $d -DryRun:$DryRun
+        $actions += [pscustomobject]@{ Raison = "dossier entierement doublon de $($dd.Keeper.Dossier)" + ($(if ($DryRun) { ' (SIMULATION)' } else { '' })) + ($(if ($err) { " ECHEC: $err" } else { '' })); Source = $d; Destination = $dest; Sha256 = $dd.Sig; Statut = $(if ($err) { 'ECHEC' } else { 'OK' }) }
     }
 }
 
@@ -394,15 +403,12 @@ foreach ($g in $parHash) {
         if (-not $manifestes.ContainsKey($r.Racine)) { $manifestes[$r.Racine] = @(Lire-Manifeste $r.Racine) }
         $cle = "$($r.Sha256)`t$($r.Chemin)"
         if ($manifestes[$r.Racine] -contains $cle) { continue }
-        $destDir = Join-Path $r.Racine '_DOUBLONS_A_TRIER'
-        $dest = CheminUnique (Join-Path $destDir $r.Relatif)
-        if (-not $DryRun) {
-            New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($dest)) -Force -ErrorAction SilentlyContinue | Out-Null
-            Copy-Item -LiteralPath $r.Chemin -Destination $dest -Force
+        $dest, $err = Action-FS $r.Racine '_DOUBLONS_A_TRIER' $r.Relatif { param($s, $d) Copy-Item -LiteralPath $s -Destination $d -Force -ErrorAction Stop } $r.Chemin -DryRun:$DryRun
+        if (-not $DryRun -and -not $err) {
             $manifestes[$r.Racine] += $cle
             Ajouter-Manifeste $r.Racine $cle
         }
-        $actions += [pscustomobject]@{ Raison = "doublon de $($gardien.Chemin)" + ($(if ($DryRun) { ' (SIMULATION)' })); Source = $r.Chemin; Destination = $dest; Sha256 = $r.Sha256 }
+        $actions += [pscustomobject]@{ Raison = "doublon de $($gardien.Chemin)" + ($(if ($DryRun) { ' (SIMULATION)' } else { '' })) + ($(if ($err) { " ECHEC: $err" } else { '' })); Source = $r.Chemin; Destination = $dest; Sha256 = $r.Sha256; Statut = $(if ($err) { 'ECHEC' } else { 'OK' }) }
     }
 }
 
@@ -465,7 +471,7 @@ Write-Host "Dossiers tout doublons    : $($dossiersDoublons.Count) ($($deplaces.
 Write-Host "Groupes memes noms        : $($sections['MEMES NOMS, CONTENUS DIFFERENTS (versions)'].Count)"
 Write-Host "Groupes variantes         : $($sections['VARIANTES DE NOM (v2, final, copie, (1), dates...)'].Count)"
 Write-Host "Fichiers a mettre de cote : $($touches.Count)"
-Write-Host "Actions                   : $($actions.Count) $(if ($DryRun) { '(SIMULATION)' })"
+Write-Host "Actions                   : $($actions.Count) $(if ($DryRun) { '(SIMULATION)' }) dont $((@($actions | Where-Object { $_.Statut -eq 'ECHEC' }).Count)) en ECHEC"
 Write-Host "Erreurs de lecture        : $($erreurs.Count)"
 $histPath = Join-Path $ReportDir 'historique_runs.tsv'
 $nouveauHist = -not (Test-Path -LiteralPath $histPath)

@@ -258,30 +258,44 @@ def chemin_unique(dest):
     return f"{base}__{i}{ext}"
 
 
-def deplacer_vers(racine, r, dossier_cible, actions, dry_run, raison):
-    dest_racine = os.path.join(racine, dossier_cible)
-    dest = os.path.join(dest_racine, r["relatif"])
-    dest = chemin_unique(dest)
+def bases_action(racine, dossier_cible, dry_run):
+    """Dossier d'action : racine si inscriptible, sinon repli ~/_TRI_DEDUP_SCAN (ex. racine cloud File Provider)."""
+    candidats = [os.path.join(racine, dossier_cible)]
     if not dry_run:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.move(r["chemin"], dest)
+        candidats.append(os.path.join(os.path.expanduser("~"), "_TRI_DEDUP_SCAN", dossier_cible))
+    return candidats
+
+
+def action_fs(racine, dossier_cible, relatif, dry_run, operation, src):
+    for base in bases_action(racine, dossier_cible, dry_run):
+        dest = chemin_unique(os.path.join(base, relatif))
+        if dry_run:
+            return dest, None
+        try:
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            operation(src, dest)
+            return dest, None
+        except OSError:
+            continue
+    return None, "ecriture refusee dans la racine et dans ~/_TRI_DEDUP_SCAN"
+
+
+def deplacer_vers(racine, r, dossier_cible, actions, dry_run, raison):
+    dest, err = action_fs(racine, dossier_cible, r["relatif"], dry_run, shutil.move, r["chemin"])
     actions.append({
-        "raison": raison, "source": r["chemin"], "destination": dest,
+        "raison": raison, "source": r["chemin"], "destination": dest or "",
         "sha256": r["sha256"], "taille": r["taille"], "simulation": dry_run,
+        "statut": "ECHEC" if err else "OK", "erreur": err or "",
     })
     return dest
 
 
 def copier_vers(racine, r, dossier_cible, actions, dry_run, raison):
-    dest_racine = os.path.join(racine, dossier_cible)
-    dest = os.path.join(dest_racine, r["relatif"])
-    dest = chemin_unique(dest)
-    if not dry_run:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copy2(r["chemin"], dest)
+    dest, err = action_fs(racine, dossier_cible, r["relatif"], dry_run, shutil.copy2, r["chemin"])
     actions.append({
-        "raison": raison, "source": r["chemin"], "destination": dest,
+        "raison": raison, "source": r["chemin"], "destination": dest or "",
         "sha256": r["sha256"], "taille": r["taille"], "simulation": dry_run,
+        "statut": "ECHEC" if err else "OK", "erreur": err or "",
     })
     return dest
 
@@ -324,6 +338,8 @@ def produire_rapport(repertoire, ts, sections, actions, erreurs, racines, dry_ru
                     act = actions_par_source.get(r["chemin"])
                     if act:
                         action_txt = act["raison"] + (" (SIMULATION)" if act["simulation"] else "")
+                        if act.get("statut") == "ECHEC":
+                            action_txt = "ECHEC: " + act.get("erreur", "") + " | " + action_txt
                         dest_txt = act["destination"]
                     elif r["chemin"] in conserves:
                         action_txt = "CONSERVÉ EN PLACE (exemplaire unique gardé)"
@@ -546,15 +562,13 @@ def main():
             if chemin_protege(d, args.protect):
                 continue
             racine = recs[0]["racine"]
-            dest = chemin_unique(os.path.join(racine, "_DOSSIERS_EN_DOUBLE", os.path.basename(d)))
-            if not args.dry_run:
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                shutil.move(d, dest)
+            dest, err = action_fs(racine, "_DOSSIERS_EN_DOUBLE", os.path.basename(d), args.dry_run, shutil.move, d)
             actions.append({
                 "raison": f"dossier entierement doublon de {keeper[0]}",
-                "source": d, "destination": dest,
+                "source": d, "destination": dest or "",
                 "sha256": sig, "taille": sum(r["taille"] for r in recs),
                 "simulation": args.dry_run,
+                "statut": "ECHEC" if err else "OK", "erreur": err or "",
             })
 
     partis_en_quarantaine = {r["chemin"] for r in touches}
@@ -589,7 +603,7 @@ def main():
     print(f"Groupes memes noms      : {len(memes_noms)}")
     print(f"Groupes variantes       : {len(variantes)}")
     print(f"Fichiers a mettre de cote : {len(touches)}")
-    print(f"Actions                 : {len(actions)} {'(SIMULATION)' if args.dry_run else ''}")
+    print(f"Actions                 : {len(actions)} {'(SIMULATION)' if args.dry_run else ''} dont {sum(1 for a in actions if a.get('statut') == 'ECHEC')} en ECHEC")
     print(f"Erreurs de lecture      : {len(toutes_erreurs)}")
     hist_path = os.path.join(report_dir, "historique_runs.tsv")
     nouveau_hist = not os.path.exists(hist_path) or os.path.getsize(hist_path) == 0
