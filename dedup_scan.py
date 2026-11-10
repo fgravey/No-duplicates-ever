@@ -305,19 +305,34 @@ def chemin_protege(chemin, protects):
     return any(normaliser(p) in n for p in protects)
 
 
+def chemins_manifeste(racine):
+    return [
+        os.path.join(racine, "_DOUBLONS_A_TRIER", ".deja_copies.txt"),
+        os.path.join(os.path.expanduser("~"), "_TRI_DEDUP_SCAN", "_DOUBLONS_A_TRIER", ".deja_copies.txt"),
+    ]
+
+
 def lire_manifeste(racine):
-    p = os.path.join(racine, "_DOUBLONS_A_TRIER", ".deja_copies.txt")
-    if os.path.exists(p):
-        with open(p, encoding="utf-8", errors="ignore") as f:
-            return set(f.read().splitlines())
-    return set()
+    s = set()
+    for p in chemins_manifeste(racine):
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8", errors="ignore") as f:
+                    s.update(f.read().splitlines())
+            except OSError:
+                continue
+    return s
 
 
 def ajouter_manifeste(racine, cle):
-    p = os.path.join(racine, "_DOUBLONS_A_TRIER", ".deja_copies.txt")
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "a", encoding="utf-8") as f:
-        f.write(cle + "\n")
+    for p in chemins_manifeste(racine):
+        try:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(cle + "\n")
+            return
+        except OSError:
+            continue
 
 
 def produire_rapport(repertoire, ts, sections, actions, erreurs, racines, dry_run, protects, conserves=None):
@@ -586,7 +601,7 @@ def main():
             if cle in manifestes.get(r["racine"], set()):
                 continue
             copier_vers(r["racine"], r, "_DOUBLONS_A_TRIER", actions, args.dry_run, f"doublon de {gardien['chemin']}")
-            if not args.dry_run:
+            if not args.dry_run and actions and actions[-1].get("statut") == "OK":
                 manifestes.setdefault(r["racine"], set()).add(cle)
                 ajouter_manifeste(r["racine"], cle)
 

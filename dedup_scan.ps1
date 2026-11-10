@@ -90,15 +90,26 @@ function CheminProtege([string]$chemin) {
 }
 
 function Lire-Manifeste([string]$racine) {
-    $p = Join-Path $racine '_DOUBLONS_A_TRIER\.deja_copies.txt'
-    if (Test-Path -LiteralPath $p) { return @(Get-Content -LiteralPath $p) } 
-    return @()
+    $chemins = @((Join-Path $racine '_DOUBLONS_A_TRIER\.deja_copies.txt'),
+                 (Join-Path $env:USERPROFILE '_TRI_DEDUP_SCAN\_DOUBLONS_A_TRIER\.deja_copies.txt'))
+    $lignes = @()
+    foreach ($p in $chemins) {
+        if (Test-Path -LiteralPath $p) { $lignes += @(Get-Content -LiteralPath $p -ErrorAction SilentlyContinue) }
+    }
+    return $lignes
 }
 
 function Ajouter-Manifeste([string]$racine, [string]$ligne) {
-    $dir = Join-Path $racine '_DOUBLONS_A_TRIER'
-    New-Item -ItemType Directory -Path $dir -Force -ErrorAction SilentlyContinue | Out-Null
-    Add-Content -LiteralPath (Join-Path $dir '.deja_copies.txt') -Value $ligne -Encoding UTF8
+    $chemins = @((Join-Path $racine '_DOUBLONS_A_TRIER\.deja_copies.txt'),
+                 (Join-Path $env:USERPROFILE '_TRI_DEDUP_SCAN\_DOUBLONS_A_TRIER\.deja_copies.txt'))
+    foreach ($p in $chemins) {
+        try {
+            $dir = [System.IO.Path]::GetDirectoryName($p)
+            if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null }
+            Add-Content -LiteralPath $p -Value $ligne -Encoding UTF8 -ErrorAction Stop
+            return
+        } catch { continue }
+    }
 }
 
 function Get-TexteFichier([System.IO.FileInfo]$f) {
