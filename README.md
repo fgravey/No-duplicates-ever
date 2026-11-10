@@ -92,8 +92,19 @@ recommandé pour toute arborescence contenant des données patients ou internes 
 - Un scan interrompu (Ctrl+C, crash) ne perd rien : inventaire + checkpoint déjà écrits ; une relance est idempotente.
 - Le CSV est en UTF-8 avec BOM pour un affichage correct des accents dans Excel.
 
-## Organisation ensuite
+## Organisation ensuite (classement automatique)
 
-Le rapport sert de base de décision : université → OneDrive, personnel → Proton Drive,
-100 % CHU → reste sur le PC CHU (utiliser `--protect CHU` pour garantir qu'aucun
-déplacement n'y est tenté). Chaque déplacement reste manuel et validé par toi.
+`classer.py` lit le dernier inventaire du scan et produit un **plan de classement** :
+
+```bash
+python3 classer.py                                  # dry-run : plan uniquement (plan_classement_*.csv)
+python3 classer.py --default PROTON --apply         # applique : univ->OneDrive, perso->Proton
+```
+
+- Règles éditables dans `regles_classement.tsv` : `categorie<TAB>type(chemin|nom|ext)<TAB>motif<TAB>destination(ONEDRIVE|PROTON|LOCAL_CHU|REVUE)`, insensible casse/accents, 1ʳᵉ règle gagnante.
+- **Sécurité dure** : tout chemin contenant `chu`/`patient`/`dossier médical` **ne monte jamais vers un cloud** — s'il est dans un cloud, il est signalé `A_TRAITER_MANUELLEMENT` (à remettre sur le PC CHU) ; en local, il reste en place.
+- Les dossiers de tri (`_A_METTRE_DE_COTE`, `_DOUBLONS_A_TRIER`, …) sont ignorés.
+- `--default REVUE` (défaut) = seul ce qui matche une règle est déplacé ; `--default PROTON` = tout le reste va sur Proton.
+- Cibles OneDrive/Proton auto-détectées (`~/Library/CloudStorage/...`), surchargeables avec `--onedrive`/`--proton`.
+- Dry-run par défaut, `--apply` pour déplacer, **aucune suppression**, collisions suffixées `__1`, historique dans `historique_classement.tsv`.
+- Côté PC CHU : rien à classer, les fichiers 100 % CHU y restent (et `--protect CHU` empêche tout déplacement).

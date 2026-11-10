@@ -1,0 +1,23 @@
+# Règles de classement — classer.py
+# Format : categorie<TAB>type<TAB>motif<TAB>destination
+#   type        : chemin (dans tout le chemin) | nom (dans le nom de fichier) | ext (extension)
+#   destination : ONEDRIVE | PROTON | LOCAL_CHU | REVUE (signalé, non déplacé)
+# Insensible à la casse et aux accents. La première règle qui matche gagne.
+# SÉCURITÉ : tout chemin contenant chu / patient / dossier médical est traité AVANT
+# ces règles et ne monte JAMAIS vers un cloud.
+#
+# --- Exemples université (à adapter à tes habitudes de nommage) ---
+universite	chemin	unicaen	ONEDRIVE
+university	chemin	UFR	ONEDRIVE
+enseignement	chemin	cours	ONEDRIVE
+enseignement	nom	TD	ONEDRIVE
+enseignement	nom	sémiologie	ONEDRIVE
+enseignement	chemin	PACES	ONEDRIVE
+recherche	chemin	these	ONEDRIVE
+recherche	chemin	mémoire	ONEDRIVE
+recherche	chemin	congrès	ONEDRIVE
+admin_univ	chemin	CHU de Caen	ONEDRIVE
+# --- Exemples personnel ---
+perso	nom	elior	PROTON
+# --- Par défaut si rien ne matche : lance avec --default PROTON pour tout envoyer sur Proton,
+#     ou laisse REVUE (comportement par défaut) pour ne déplacer que ce qui matche une règle.
