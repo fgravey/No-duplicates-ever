@@ -92,6 +92,24 @@ recommandé pour toute arborescence contenant des données patients ou internes 
 - Un scan interrompu (Ctrl+C, crash) ne perd rien : inventaire + checkpoint déjà écrits ; une relance est idempotente.
 - Le CSV est en UTF-8 avec BOM pour un affichage correct des accents dans Excel.
 
+## Nettoyage des noms incompatibles OneDrive (`nettoyer_noms.py`)
+
+OneDrive/SharePoint refuse : chemins > ~400 caractères, caractères `~ " # % & * : < > ? / \ |`,
+noms réservés (CON, PRN…), points/espaces finaux, et **deux noms ne différant que par la casse**
+dans un même dossier (`SLH.docx` vs `slh.docx`). Après un gros transfert, des centaines de ces
+erreurs apparaissent et le renommage manuel échoue justement à cause du conflit.
+
+```bash
+python3 nettoyer_noms.py --auto                  # plan (dry-run) sur tous les clouds détectés
+python3 nettoyer_noms.py --auto --apply          # applique les renommages
+# pour les chemins très longs, relancer --apply jusqu'à "0 renommage prévu" (convergence par passes) :
+python3 nettoyer_noms.py --auto --apply --limite 340
+```
+
+- Renommage uniquement, **aucune suppression**, suffixe `__2` en cas de conflit de casse,
+  plan détaillé dans `plan_nettoyage_noms_*.csv` (colonne `resultat` après `--apply`).
+- `--auto` détecte `~/Library/CloudStorage/*` (OneDrive, Proton, Google Drive, iCloud) et `~/OneDrive*` ; sinon passe des racines en argument.
+
 ## Organisation ensuite (classement automatique)
 
 `classer.py` lit le dernier inventaire du scan et produit un **plan de classement** :
