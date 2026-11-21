@@ -75,20 +75,22 @@ def traduire(p, mapping):
     return p
 
 
+def existe_ci(p):
+    """True si p existe, ou si un nom identique en ignorant la casse existe dans le dossier parent."""
+    if os.path.lexists(p):
+        return True
+    d = os.path.dirname(p)
+    if os.path.isdir(d):
+        cf = os.path.basename(p).casefold()
+        return any(e.casefold() == cf for e in os.listdir(d))
+    return False
+
+
 def unique_casse_insensible(dest):
     """Ajoute __1, __2... si un nom existe deja (meme en ignorant la casse)."""
-    d, nom = os.path.split(dest)
-
-    def existe_ci(p):
-        if os.path.lexists(p):
-            return True
-        if os.path.isdir(d):
-            cf = os.path.basename(p).casefold()
-            return any(e.casefold() == cf for e in os.listdir(d))
-        return False
-
     if not existe_ci(dest):
         return dest
+    d, nom = os.path.split(dest)
     base, ext = os.path.splitext(nom)
     i = 1
     while existe_ci(os.path.join(d, f"{base}__{i}{ext}")):
@@ -184,31 +186,38 @@ def main():
         print(f"    {v:>7}  {k}")
 
     if args.apply:
-        # de l'exterieur vers l'interieur, avec traduction des prefixes deja renommes
+        # de l'exterieur vers l'interieur, avec traduction des prefixes deja renommes.
+        # Re-executable : une source absente = deja renommee ou disparue -> IGNORE.
         rows.sort(key=lambda r: r[1].count(os.sep))
         mapping = {}
-        ok = echec = 0
+        ok = echec = ignore = 0
         for r in rows:
             type_, ancien, nouveau = r
             ancien2 = traduire(ancien, mapping)
+            if not os.path.lexists(ancien2):
+                r.append("IGNORE (absent ou deja renomme)")
+                ignore += 1
+                continue
             nouveau2 = traduire(nouveau, mapping)
+            if existe_ci(nouveau2):  # destination prise entre-temps -> nom unique frais
+                nouveau2 = unique_casse_insensible(nouveau2)
             try:
-                if os.path.lexists(nouveau2):
-                    raise OSError("destination existe deja")
                 os.rename(ancien2, nouveau2)
                 mapping[ancien] = nouveau
+                r.append("OK")
                 ok += 1
             except OSError as e:
+                r.append(f"ECHEC: {e}")
                 echec += 1
                 print(f"    ECHEC {ancien2} -> {nouveau2} : {e}", file=sys.stderr)
         with open(plan_path, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
             w.writerow(["type", "ancien", "nouveau", "resultat"])
             for r in rows:
-                type_, ancien, nouveau = r
-                res = "OK" if os.path.lexists(traduire(nouveau, mapping)) else "ECHEC"
-                w.writerow([type_, ancien, nouveau, res])
-        print(f"[*] Renommages : {ok} OK, {echec} ECHEC")
+                w.writerow(r)
+        print(f"[*] Renommages : {ok} OK, {echec} ECHEC, {ignore} ignores (deja faits)")
+        if echec:
+            print(f"[*] ECHEC detailles dans : {plan_path} (colonne resultat)")
     else:
         print("[*] Dry-run : aucun renommage. Relance avec --apply.")
     return 0
