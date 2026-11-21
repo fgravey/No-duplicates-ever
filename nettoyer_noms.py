@@ -104,7 +104,7 @@ def detecter_racines_auto():
     if os.name == "nt":
         up = os.path.expanduser("~")
         racines += sorted(glob.glob(os.path.join(up, "OneDrive*")))
-    return [r for r in racines if os.path.isdir(r)]
+    return list(dict.fromkeys(r for r in racines if os.path.isdir(r)))
 
 
 def planifier(racine, limite, rows):
