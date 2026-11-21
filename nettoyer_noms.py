@@ -109,10 +109,29 @@ def detecter_racines_auto():
     return list(dict.fromkeys(r for r in racines if os.path.isdir(r)))
 
 
+def cible_finale(dirpath, nom, limite, proxy=False):
+    """Calcule le renommage unique d'un fichier/dossier : nettoyage du nom ET/OU
+    raccourcissement si le chemin depasse la limite. Retourne (ancien, nouveau, raison) ou None."""
+    p = os.path.join(dirpath, nom)
+    n, modifie = nettoyer_nom(nom)
+    p2 = os.path.join(dirpath, n) if modifie else p
+    raison = "nom_invalide" if modifie else None
+    if chemin_trop_long(p2 + (os.sep + "x" if proxy else ""), limite):
+        court = raccourcir_un_segment(p2, limite)
+        if court:
+            b = os.path.basename(court)
+            b2, _ = nettoyer_nom(b)
+            p2 = os.path.join(os.path.dirname(court), b2)
+            raison = (raison + "+chemin_trop_long") if raison else "chemin_trop_long"
+    if p2 == p:
+        return None
+    return p, unique_casse_insensible(p2), raison
+
+
 def planifier(racine, limite, rows):
     racine = os.path.abspath(racine)
-    # 1) conflits de casse par dossier
     for dirpath, dirnames, filenames in os.walk(racine):
+        # 1) conflits de casse par dossier
         for liste in (filenames, dirnames):
             groupes = {}
             for e in liste:
@@ -125,27 +144,15 @@ def planifier(racine, limite, rows):
                         base, ext = os.path.splitext(m)
                         nouveau = unique_casse_insensible(os.path.join(dirpath, f"{base}__2{ext}"))
                         rows.append(["conflit_casse", ancien, nouveau])
-        # 2) noms invalides + chemins trop longs (fichiers d'abord, puis dossiers)
+        # 2) une seule ligne par entree : nom invalide et/ou chemin trop long
         for e in filenames:
-            p = os.path.join(dirpath, e)
-            n, modifie = nettoyer_nom(e)
-            if modifie:
-                rows.append(["nom_invalide", p, os.path.join(dirpath, n)])
-        for e in filenames:
-            p = os.path.join(dirpath, e)
-            if chemin_trop_long(p, limite):
-                court = raccourcir_un_segment(p, limite)
-                if court:
-                    rows.append(["chemin_trop_long", p, court])
+            r = cible_finale(dirpath, e, limite)
+            if r:
+                rows.append([r[2], r[0], r[1]])
         for e in dirnames:
-            p = os.path.join(dirpath, e)
-            n, modifie = nettoyer_nom(e)
-            if modifie:
-                rows.append(["nom_invalide", p, os.path.join(dirpath, n)])
-            if chemin_trop_long(p + os.sep + "x", limite):
-                court = raccourcir_un_segment(p, limite)
-                if court:
-                    rows.append(["chemin_trop_long", p, court])
+            r = cible_finale(dirpath, e, limite, proxy=True)
+            if r:
+                rows.append([r[2], r[0], r[1]])
 
 
 def main():
