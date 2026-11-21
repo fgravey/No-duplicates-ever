@@ -57,7 +57,7 @@ def raccourcir_un_segment(chemin, limite, longueur=None):
     parties = chemin.split(os.sep)
     seg = parties[-1]
     base, ext = os.path.splitext(seg)
-    cut = min(20, max(0, len(base) - 8))
+    cut = min(40, max(0, len(base) - 8))
     if cut == 0:
         return None
     parties[-1] = base[: len(base) - cut] + ext
@@ -197,6 +197,10 @@ def main():
     print(f"[*] {len(rows)} renommages prevus -> {plan_path}")
     for k, v in Counter(r[0] for r in rows).most_common():
         print(f"    {v:>7}  {k}")
+    if rows:
+        print("[*] Plus longs chemins restants :")
+        for r in sorted(rows, key=lambda r: -len(r[1]))[:5]:
+            print(f"    {len(r[1]):>4}  {r[1]}")
 
     if args.apply:
         # de l'exterieur vers l'interieur, avec traduction des prefixes deja renommes.
