@@ -35,8 +35,18 @@ MAX_CONTENU = 5 * 1024 * 1024  # 5 Mo max lus par fichier pour les regles "conte
 
 DOSSIERS_TRI = {"_a_mettre_de_cote", "_doublons_a_trier", "_dossiers_en_double", "_rapport_scan", "_tri_dedup_scan"}
 
-# Donnees CHU/patients : ne jamais monter vers un cloud
-REGLE_CHU = re.compile(r"(?<![a-z0-9])(chu|chucaen|chu de caen|patients?|dossier medical|donnees patients|hospitalier)(?![a-z0-9])")
+# Donnees patients/CHU : ne jamais monter vers un cloud.
+# Motifs par defaut volontairement sans le mot "chu" seul (un dossier peut s'appeler
+# "data-chu-caen" sans contenir de donnees patients) ; rajoute "chu" via --chu-motifs
+# pour la regle la plus stricte.
+MOTIFS_CHU_DEFAUT = "patient, dossier medical, donnees patients, dossier de soins, hospitalier"
+
+
+def chu_regex(motifs):
+    parts = [m.strip() for m in motifs.split(",") if m.strip()]
+    if not parts:
+        return re.compile(r"(?!x)x")  # ne matche jamais
+    return re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(normaliser(p)) + r"s?" for p in parts) + r")(?![a-z0-9])")
 
 DEST_RACINES = {"ONEDRIVE": "onedrive", "PROTON": "proton", "LOCAL_CHU": None, "REVUE": None}
 
@@ -78,12 +88,12 @@ def motif_regex(motif):
     return re.compile(r"(?<![a-z0-9])" + re.escape(normaliser(motif)) + r"s?(?![a-z0-9])")
 
 
-def classer(chemin, racine, regles, defaut):
+def classer(chemin, racine, regles, defaut, chu_rx):
     segments = {normaliser(s) for s in chemin.split(os.sep)}
     if segments & DOSSIERS_TRI:
         return "DEJA_TRIE", "-", "RESTE_EN_PLACE"
     n = normaliser(chemin)
-    if REGLE_CHU.search(n):
+    if chu_rx.search(n):
         if est_dans_cloud(chemin):
             return ("CHU", "securite CHU", "A_TRAITER_MANUELLEMENT (donnees CHU/patients dans un cloud : a remettre sur le PC CHU, jamais vers Proton/OneDrive perso)")
         return "CHU", "securite CHU", "RESTE_EN_PLACE (local)"
@@ -136,6 +146,9 @@ def main():
     ap.add_argument("--proton", default=None, help="racine Proton Drive cible (auto-detecte sinon)")
     ap.add_argument("--default", choices=["REVUE", "PROTON", "ONEDRIVE"], default="REVUE",
                     help="destination si aucune regle ne matche (defaut REVUE = signale seulement)")
+    ap.add_argument("--chu-motifs", default=MOTIFS_CHU_DEFAUT,
+                    help="motifs consideres comme donnees CHU/patients (separees par des virgules) ; "
+                         "jamais envoyees vers un cloud. Ajoute 'chu' pour la regle la plus stricte.")
     ap.add_argument("--protect", action="append", default=[], help="sous-chaine : chemin en lecture seule (plan uniquement)")
     ap.add_argument("--apply", action="store_true", help="applique les deplacements (sinon dry-run)")
     args = ap.parse_args()
@@ -151,6 +164,8 @@ def main():
 
     regles = charger_regles(args.regles)
     print(f"[*] {len(regles)} regles chargees depuis {args.regles}")
+    chu_rx = chu_regex(args.chu_motifs)
+    print(f"[*] Securite CHU/patients (motifs bloquants) : {args.chu_motifs}")
 
     onedrive = args.onedrive or detecter_racine("OneDrive")
     proton = args.proton or detecter_racine("ProtonDrive") or detecter_racine("Proton")
@@ -170,7 +185,7 @@ def main():
             racine, chemin = p[0], p[1]
             if not os.path.exists(chemin):
                 continue
-            cat, regle, dest = classer(chemin, racine, regles, args.default)
+            cat, regle, dest = classer(chemin, racine, regles, args.default, chu_rx)
             if dest.startswith(("A_TRAITER", "RESTE")):
                 action_txt = dest
                 dest_path = ""

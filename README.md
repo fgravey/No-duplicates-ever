@@ -120,7 +120,7 @@ python3 classer.py --default PROTON --apply         # applique : univ->OneDrive,
 ```
 
 - Règles éditables dans `regles_classement.tsv` : `categorie<TAB>type(chemin|nom|ext)<TAB>motif<TAB>destination(ONEDRIVE|PROTON|LOCAL_CHU|REVUE)`, insensible casse/accents, 1ʳᵉ règle gagnante.
-- **Sécurité dure** : tout chemin contenant `chu`/`patient`/`dossier médical` **ne monte jamais vers un cloud** — s'il est dans un cloud, il est signalé `A_TRAITER_MANUELLEMENT` (à remettre sur le PC CHU) ; en local, il reste en place.
+- **Sécurité dure** : les chemins contenant un motif « données patients/CHU » **ne montent jamais vers un cloud** — s'ils sont dans un cloud, ils sont signalés `A_TRAITER_MANUELLEMENT` ; en local, ils restent en place. Motifs par défaut : `patient, dossier medical, donnees patients, dossier de soins, hospitalier` (le mot `chu` seul n'est PAS bloquant, car un dossier peut s'appeler `data-chu-caen` sans contenir de données patients). Pour la règle la plus stricte : `--chu-motifs "chu,patient,dossier medical"`.
 - Les dossiers de tri (`_A_METTRE_DE_COTE`, `_DOUBLONS_A_TRIER`, …) sont ignorés.
 - `--default REVUE` (défaut) = seul ce qui matche une règle est déplacé ; `--default PROTON` = tout le reste va sur Proton.
 - Cibles OneDrive/Proton auto-détectées (`~/Library/CloudStorage/...`), surchargeables avec `--onedrive`/`--proton`.
