@@ -46,11 +46,13 @@ def chemin_trop_long(chemin, limite):
     return len(chemin) > limite
 
 
-def raccourcir_un_segment(chemin, limite):
-    """Raccourcit le DERNIER segment du chemin (fichier ou dossier lui-meme) de 20 caracteres max.
+def raccourcir_un_segment(chemin, limite, longueur=None):
+    """Raccourcit le DERNIER segment du chemin (fichier ou dossier lui-meme).
     Le parent de destination existe donc toujours. Un passage = un renommage ;
-    relancer le script fait converger tous les chemins sous la limite."""
-    if len(chemin) <= limite:
+    relancer le script fait converger tous les chemins sous la limite.
+    longueur : longueur effective a considerer (ex. chemin + '/x' pour un dossier)."""
+    L = len(chemin) if longueur is None else longueur
+    if L <= limite:
         return None
     parties = chemin.split(os.sep)
     seg = parties[-1]
@@ -116,8 +118,12 @@ def cible_finale(dirpath, nom, limite, proxy=False):
     n, modifie = nettoyer_nom(nom)
     p2 = os.path.join(dirpath, n) if modifie else p
     raison = "nom_invalide" if modifie else None
-    if chemin_trop_long(p2 + (os.sep + "x" if proxy else ""), limite):
-        court = raccourcir_un_segment(p2, limite)
+    if proxy:
+        longueur = len(p2 + os.sep + "x")
+    else:
+        longueur = len(p2)
+    if longueur > limite:
+        court = raccourcir_un_segment(p2, limite, longueur=longueur)
         if court:
             b = os.path.basename(court)
             b2, _ = nettoyer_nom(b)
