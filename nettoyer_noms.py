@@ -119,7 +119,9 @@ def cible_finale(dirpath, nom, limite, proxy=False):
     p2 = os.path.join(dirpath, n) if modifie else p
     raison = "nom_invalide" if modifie else None
     if proxy:
-        longueur = len(p2 + os.sep + "x")
+        # marge de 40 caracteres pour un eventuel nom de fichier enfant :
+        # sinon un dossier long avec des fichiers a noms courts n'est jamais raccourci
+        longueur = len(p2) + 1 + 40
     else:
         longueur = len(p2)
     if longueur > limite:
