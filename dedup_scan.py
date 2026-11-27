@@ -176,62 +176,85 @@ def charger_checkpoint(path):
     return ckpt
 
 
-def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier=None, tout=False):
+def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier=None, tout=False, jobs=1):
     enregistrements = []
     erreurs = []
     ckpt = ckpt if ckpt is not None else {}
     tampon_inv = []
     tampon_ck = []
     racine = os.path.abspath(racine)
+
+    def traiter(chemin):
+        # Execute dans le pool de threads : renvoie (record, ligne_ckpt, ligne_inv) ou None
+        nom = os.path.basename(chemin)
+        try:
+            st = os.stat(chemin)
+            if not os.path.isfile(chemin):
+                return None
+            ext = os.path.splitext(nom)[1].lower()
+            entree = ckpt.get(chemin)
+            if entree and entree["taille"] == st.st_size and entree["mtime"] == int(st.st_mtime):
+                h = entree["sha256"]; tn = entree["touche_nom"]; tc = entree["touche_contenu"]
+                ligne_ck = None
+            else:
+                h = sha256_fichier(chemin)
+                texte = extraire_texte(chemin, ext, max_content) if ext in (EXT_TEXT | EXT_ZIP_XML | EXT_PDF) else None
+                tn = bool(PATTERN_NOMS.search(normaliser(nom)))
+                tc = bool(texte and PATTERN_NOMS.search(normaliser(texte)))
+                ligne_ck = f'{h}\t{st.st_size}\t{int(st.st_mtime)}\t{1 if tn else 0}\t{1 if tc else 0}\t{chemin}'
+            record = {
+                "racine": racine, "chemin": chemin,
+                "relatif": os.path.relpath(chemin, racine),
+                "nom": nom, "ext": ext, "taille": st.st_size, "mtime": st.st_mtime,
+                "sha256": h, "touche_nom": tn, "touche_contenu": tc,
+            }
+            ligne_inv = f'{racine}\t{chemin}\t{st.st_size}\t{int(st.st_mtime)}\t{h}\t{1 if tn else 0}\t{1 if tc else 0}'
+            return record, ligne_ck, ligne_inv
+        except OSError as e:
+            return ("err", chemin, str(e))
+
+    # 1) collecte des chemins
+    chemins = []
     for dirpath, dirnames, filenames in os.walk(racine, followlinks=False):
         dirnames[:] = [d for d in dirnames if (tout or d not in DOSSIERS_IGNORES) and d not in DOSSIERS_SYSTEME]
         for nom in sorted(filenames):
             if nom.startswith(NOM_RAPPORT_PREFIX) or nom in FICHIERS_SYSTEME or fnmatch.fnmatch(nom.lower(), "*.log.tmp"):
                 continue
-            chemin = os.path.join(dirpath, nom)
-            try:
-                st = os.stat(chemin)
-                if not os.path.isfile(chemin):
-                    continue
-                ext = os.path.splitext(nom)[1].lower()
-                entree = ckpt.get(chemin)
-                if entree and entree["taille"] == st.st_size and entree["mtime"] == int(st.st_mtime):
-                    h = entree["sha256"]
-                    tn = entree["touche_nom"]
-                    tc = entree["touche_contenu"]
-                else:
-                    h = sha256_fichier(chemin)
-                    texte = extraire_texte(chemin, ext, max_content) if ext in (EXT_TEXT | EXT_ZIP_XML | EXT_PDF) else None
-                    tn = bool(PATTERN_NOMS.search(normaliser(nom)))
-                    tc = bool(texte and PATTERN_NOMS.search(normaliser(texte)))
-                    tampon_ck.append(f'{h}\t{st.st_size}\t{int(st.st_mtime)}\t{1 if tn else 0}\t{1 if tc else 0}\t{chemin}')
-                    ckpt[chemin] = {"taille": st.st_size, "mtime": int(st.st_mtime), "sha256": h, "touche_nom": tn, "touche_contenu": tc}
-                enregistrements.append({
-                    "racine": racine,
-                    "chemin": chemin,
-                    "relatif": os.path.relpath(chemin, racine),
-                    "nom": nom,
-                    "ext": ext,
-                    "taille": st.st_size,
-                    "mtime": st.st_mtime,
-                    "sha256": h,
-                    "touche_nom": tn,
-                    "touche_contenu": tc,
-                })
-                if inventaire is not None:
-                    tampon_inv.append(f'{racine}\t{chemin}\t{st.st_size}\t{int(st.st_mtime)}\t{h}\t{1 if tn else 0}\t{1 if tc else 0}')
-                if inventaire is not None and len(tampon_inv) >= 1000:
-                    inventaire.write("\n".join(tampon_inv) + "\n")
-                    inventaire.flush()
-                    tampon_inv = []
-                if ckpt_fichier is not None and len(tampon_ck) >= 1000:
-                    ckpt_fichier.write("\n".join(tampon_ck) + "\n")
-                    ckpt_fichier.flush()
-                    tampon_ck = []
-            except OSError as e:
-                erreurs.append((chemin, str(e)))
-            if len(enregistrements) % 5000 == 0:
-                print(f"    ... {len(enregistrements)} fichiers analyses")
+            chemins.append(os.path.join(dirpath, nom))
+    chemins.sort()
+
+    # 2) hachage parallele (hashlib/libere le GIL sur les gros blocs + lecture disque)
+    if jobs and jobs > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=jobs) as ex:
+            resultats = list(ex.map(traiter, chemins))
+    else:
+        resultats = [traiter(c) for c in chemins]
+
+    # 3) assemblage dans le thread principal (ordre preserve, buffers thread-safe)
+    for res in resultats:
+        if res is None:
+            continue
+        if isinstance(res, tuple) and res and res[0] == "err":
+            erreurs.append((res[1], res[2]))
+            continue
+        record, ligne_ck, ligne_inv = res
+        enregistrements.append(record)
+        if ligne_ck:
+            tampon_ck.append(ligne_ck)
+            ckpt[record["chemin"]] = {"taille": record["taille"], "mtime": int(record["mtime"]), "sha256": record["sha256"], "touche_nom": record["touche_nom"], "touche_contenu": record["touche_contenu"]}
+        if inventaire is not None:
+            tampon_inv.append(ligne_inv)
+            if len(tampon_inv) >= 1000:
+                inventaire.write("\n".join(tampon_inv) + "\n")
+                inventaire.flush()
+                tampon_inv = []
+        if ckpt_fichier is not None and len(tampon_ck) >= 1000:
+            ckpt_fichier.write("\n".join(tampon_ck) + "\n")
+            ckpt_fichier.flush()
+            tampon_ck = []
+        if len(enregistrements) % 5000 == 0:
+            print(f"    ... {len(enregistrements)} fichiers analyses", flush=True)
     if inventaire is not None and tampon_inv:
         inventaire.write("\n".join(tampon_inv) + "\n")
         inventaire.flush()
@@ -421,6 +444,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Simule sans rien toucher")
     ap.add_argument("--report-dir", default=None, help="Dossier des rapports (defaut : <racine1>/_RAPPORT_SCAN)")
     ap.add_argument("--max-content", type=int, default=DEFAULT_MAX_CONTENT, help="Taille max lue pour le contenu (octets)")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4, help="nb de threads pour le hachage (defaut: tous les coeurs)")
     args = ap.parse_args()
 
     if args.auto:
@@ -450,7 +474,7 @@ def main():
             print(f"[!] Racine ignoree (introuvable) : {racine}", file=sys.stderr)
             continue
         print(f"[*] Scan de {racine} ...")
-        recs, errs = scanner_racine(racine, args.max_content, ckpt, inventaire, ckpt_fichier)
+        recs, errs = scanner_racine(racine, args.max_content, ckpt, inventaire, ckpt_fichier, jobs=args.jobs)
         tous.extend(recs)
         toutes_erreurs.extend(errs)
         print(f"    {len(recs)} fichiers, {len(errs)} erreur(s)")
