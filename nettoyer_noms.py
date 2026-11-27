@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 
 LIMITE_CHEMIN = 380  # marge sous la limite OneDrive de 400 caracteres
 CARACTÈRES_INTERDITS = re.compile(r'[~"#%&*:<>?\\/|]')
@@ -139,11 +140,13 @@ def cible_finale(dirpath, nom, limite, proxy=False):
 def planifier(racine, limite, rows):
     racine = os.path.abspath(racine)
     for dirpath, dirnames, filenames in os.walk(racine):
-        # 1) conflits de casse par dossier
+        # 1) conflits de casse/Unicode par dossier : meme nom en ignorant la casse
+        #    ET la forme de normalisation (NFC vs NFD) — macOS stocke en NFD, le
+        #    serveur en NFC, d'ou les "meme nom ou majuscules differentes" fantomes
         for liste in (filenames, dirnames):
             groupes = {}
             for e in liste:
-                groupes.setdefault(e.casefold(), []).append(e)
+                groupes.setdefault(unicodedata.normalize("NFC", e).casefold(), []).append(e)
             for cf, membres in groupes.items():
                 if len(membres) > 1:
                     membres.sort()
