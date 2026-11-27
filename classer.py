@@ -99,31 +99,30 @@ def classer(chemin, racine, regles, defaut, chu_rx):
         return "CHU", "securite CHU", "RESTE_EN_PLACE (local)"
     nom = normaliser(os.path.basename(chemin))
     dossiers = [normaliser(s) for s in chemin.split(os.sep)[:-1]]
-    texte = None
+    # Phase 1 : regles sans lecture de contenu (chemin/dossier/nom/ext) - rapide.
     for cat, type_, motif, dest in regles:
         if type_ == "contenu":
-            if texte is None:
-                ext = os.path.splitext(chemin)[1].lower()
-                try:
-                    taille = os.path.getsize(chemin)
-                except OSError:
-                    taille = 0
-                if ext in EXT_TEXTE_CLASSEMENT and 0 < taille <= MAX_CONTENU:
-                    texte = normaliser(extraire_texte(chemin, ext, MAX_CONTENU) or "")
-                else:
-                    texte = ""
-            if texte and motif_regex(motif).search(texte):
-                return cat, "contenu:" + motif, dest
             continue
         rx = motif_regex(motif)
-        if type_ == "chemin" and rx.search(n):
-            return cat, motif, dest
-        if type_ == "dossier" and any(rx.search(d) for d in dossiers):
-            return cat, "dossier:" + motif, dest
-        if type_ == "nom" and rx.search(nom):
-            return cat, motif, dest
-        if type_ == "ext" and chemin.lower().endswith(normaliser(motif)):
-            return cat, motif, dest
+        if type_ == "chemin" and rx.search(n): return cat, motif, dest
+        if type_ == "dossier" and any(rx.search(d) for d in dossiers): return cat, "dossier:" + motif, dest
+        if type_ == "nom" and rx.search(nom): return cat, motif, dest
+        if type_ == "ext" and chemin.lower().endswith(normaliser(motif)): return cat, motif, dest
+    # Phase 2 : regles "contenu" seulement si rien n'a matche (evite de lire le
+    # contenu de tous les fichiers, surtout les placeholders cloud lents)
+    for cat, type_, motif, dest in regles:
+        if type_ != "contenu":
+            continue
+        ext = os.path.splitext(chemin)[1].lower()
+        try:
+            taille = os.path.getsize(chemin)
+        except OSError:
+            taille = 0
+        texte = ""
+        if ext in EXT_TEXTE_CLASSEMENT and 0 < taille <= MAX_CONTENU:
+            texte = normaliser(extraire_texte(chemin, ext, MAX_CONTENU) or "")
+        if texte and motif_regex(motif).search(texte):
+            return cat, "contenu:" + motif, dest
     return "PAR_DEFAUT", "-", defaut
 
 
@@ -178,9 +177,13 @@ def main():
     ts = time.strftime("%Y%m%d_%H%M%S")
     plan_path = os.path.join(args.report_dir, f"plan_classement_{ts}.csv")
     lignes = []
+    n = 0
     with open(inv, encoding="utf-8-sig") as f:
         next(f, None)
         for ligne in f:
+            n += 1
+            if n % 5000 == 0:
+                print(f"    ... {n} fichiers traites", flush=True)
             p = ligne.rstrip("\n").split("\t")
             if len(p) < 2:
                 continue
