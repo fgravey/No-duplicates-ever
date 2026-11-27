@@ -62,31 +62,32 @@ def main():
     ts = time.strftime("%Y%m%d_%H%M%S")
     base = os.path.basename(racine.rstrip(os.sep)).replace(" ", "_")
     csv_path = os.path.join(args.report_dir, f"doublons_{base}_{ts}.csv")
-    txt_path = os.path.join(args.report_dir, f"supprimer_sauf_keeper_{base}_{ts}.txt")
 
-    n_groupes = n_copies = 0
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as fcsv, open(txt_path, "w", encoding="utf-8") as ftxt:
+    n_groupes = n_fichiers = 0
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as fcsv:
         w = csv.writer(fcsv)
-        w.writerow(["groupe", "sha256", "taille", "nb_exemplaires", "keeper", "exemplaires"])
+        # keep : a remplir a la main (yes = garder, no = supprimer, vide = pas decide)
+        w.writerow(["groupe", "sha256", "taille", "chemin", "keep", "suggestion_keeper"])
         for i, (h, chemins) in enumerate(sorted(groupes.items()), 1):
             if len(chemins) < 2:
                 continue
             chemins.sort()
             hors_tri = [c for c in chemins if not est_tri(c)]
             keeper = hors_tri[0] if hors_tri else chemins[0]
-            copies = [c for c in chemins if c != keeper]
             taille = next((r["taille"] for r in rows if r["chemin"] == keeper), 0)
-            w.writerow([i, h, taille, len(chemins), keeper, " | ".join(chemins)])
-            for c in copies:
-                ftxt.write(c + "\n")
+            for c in chemins:
+                w.writerow([i, h, taille, c, "", "yes" if c == keeper else ""])
             n_groupes += 1
-            n_copies += len(copies)
+            n_fichiers += len(chemins)
 
-    print(f"[*] {n_groupes} groupes de doublons parfaits, {n_copies} exemplaires en trop")
-    print(f"[*] CSV detaille   : {csv_path}")
-    print(f"[*] Liste a supprimer (tous sauf keeper) : {txt_path}")
-    print("[*] Apercu de la commande de suppression (A VERIFIER AVANT, le script ne supprime rien) :")
-    print(f"      tr '\\n' '\\0' < '{txt_path}' | xargs -0 rm -f --")
+    print(f"[*] {n_groupes} groupes de doublons parfaits, {n_fichiers} fichiers concernes")
+    print(f"[*] CSV a annoter (colonne keep : yes/no/rien) : {csv_path}")
+    print("[*] Apres annotation, supprimer les 'no' avec :")
+    print(f"      python3 -c \"import csv,os;p='{csv_path}';n=0\n"
+          "      for r in csv.DictReader(open(p,encoding='utf-8-sig')):\n"
+          "          if r['keep'].strip().lower()=='no':\n"
+          "              os.path.exists(r['chemin']) and os.remove(r['chemin']) or print('absent:',r['chemin']); n+=1\n"
+          "      print(n,'fichiers supprimes')\"")
     return 0
 
 
