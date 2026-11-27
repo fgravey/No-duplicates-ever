@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--report-dir", default=os.path.expanduser("~/Downloads/rapports_scan"))
     ap.add_argument("--max-content", type=int, default=2 * 1024 * 1024 * 1024)
     ap.add_argument("--include-empty", action="store_true", help="inclure les fichiers vides (hash identique trivially)")
+    ap.add_argument("--tout", action="store_true", help="scanner AUSSI les dossiers de tri (_DOUBLONS_A_TRIER, _A_METTRE_DE_COTE...)")
     args = ap.parse_args()
 
     racine = os.path.abspath(args.racine)
@@ -45,7 +46,7 @@ def main():
     t0 = time.time()
     ckpt_f = open(ckpt_path, "a", encoding="utf-8")
     try:
-        rows, erreurs = scanner_racine(racine, args.max_content, ckpt=ckpt, ckpt_fichier=ckpt_f)
+        rows, erreurs = scanner_racine(racine, args.max_content, ckpt=ckpt, ckpt_fichier=ckpt_f, tout=args.tout)
     finally:
         ckpt_f.close()
     print(f"[*] {len(rows)} fichiers, {len(erreurs)} erreurs, en {time.time()-t0:.0f}s")

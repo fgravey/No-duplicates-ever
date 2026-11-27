@@ -176,7 +176,7 @@ def charger_checkpoint(path):
     return ckpt
 
 
-def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier=None):
+def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier=None, tout=False):
     enregistrements = []
     erreurs = []
     ckpt = ckpt if ckpt is not None else {}
@@ -184,7 +184,7 @@ def scanner_racine(racine, max_content, ckpt=None, inventaire=None, ckpt_fichier
     tampon_ck = []
     racine = os.path.abspath(racine)
     for dirpath, dirnames, filenames in os.walk(racine, followlinks=False):
-        dirnames[:] = [d for d in dirnames if d not in DOSSIERS_IGNORES and d not in DOSSIERS_SYSTEME]
+        dirnames[:] = [d for d in dirnames if (tout or d not in DOSSIERS_IGNORES) and d not in DOSSIERS_SYSTEME]
         for nom in sorted(filenames):
             if nom.startswith(NOM_RAPPORT_PREFIX) or nom in FICHIERS_SYSTEME or fnmatch.fnmatch(nom.lower(), "*.log.tmp"):
                 continue
