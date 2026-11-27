@@ -150,6 +150,8 @@ def main():
                     help="motifs consideres comme donnees CHU/patients (separees par des virgules) ; "
                          "jamais envoyees vers un cloud. Ajoute 'chu' pour la regle la plus stricte.")
     ap.add_argument("--protect", action="append", default=[], help="sous-chaine : chemin en lecture seule (plan uniquement)")
+    ap.add_argument("--categorie", action="append", default=[],
+                    help="ne traiter que cette categorie (repetable, ex. --categorie recherche --categorie perso) ; defaut = toutes")
     ap.add_argument("--apply", action="store_true", help="applique les deplacements (sinon dry-run)")
     args = ap.parse_args()
 
@@ -213,6 +215,11 @@ def main():
         w.writerow(["chemin", "racine", "categorie", "regle", "action", "destination", "resultat"])
         for l in lignes:
             w.writerow(l + [""])
+
+    if args.categorie:
+        avant = len(lignes)
+        lignes = [l for l in lignes if l[2] in args.categorie]
+        print(f"[*] Filtre categorie {args.categorie} : {avant} -> {len(lignes)} fichiers")
 
     from collections import Counter
     compte = Counter(l[4] for l in lignes)
