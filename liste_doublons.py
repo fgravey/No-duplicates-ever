@@ -43,7 +43,11 @@ def main():
 
     print(f"[*] Scan de {racine} (checkpoint: {len(ckpt)} entrees) ...")
     t0 = time.time()
-    rows, erreurs = scanner_racine(racine, args.max_content, ckpt=ckpt, ckpt_fichier=ckpt_path)
+    ckpt_f = open(ckpt_path, "a", encoding="utf-8")
+    try:
+        rows, erreurs = scanner_racine(racine, args.max_content, ckpt=ckpt, ckpt_fichier=ckpt_f)
+    finally:
+        ckpt_f.close()
     print(f"[*] {len(rows)} fichiers, {len(erreurs)} erreurs, en {time.time()-t0:.0f}s")
 
     groupes = defaultdict(list)
