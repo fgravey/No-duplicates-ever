@@ -89,6 +89,7 @@ def motif_regex(motif):
 
 
 def classer(chemin, racine, regles, defaut, chu_rx):
+    # regles = liste de (cat, type, motif, dest, rx_precompilee ou None)
     segments = {normaliser(s) for s in chemin.split(os.sep)}
     if segments & DOSSIERS_TRI:
         return "DEJA_TRIE", "-", "RESTE_EN_PLACE"
@@ -100,17 +101,16 @@ def classer(chemin, racine, regles, defaut, chu_rx):
     nom = normaliser(os.path.basename(chemin))
     dossiers = [normaliser(s) for s in chemin.split(os.sep)[:-1]]
     # Phase 1 : regles sans lecture de contenu (chemin/dossier/nom/ext) - rapide.
-    for cat, type_, motif, dest in regles:
+    for cat, type_, motif, dest, rx in regles:
         if type_ == "contenu":
             continue
-        rx = motif_regex(motif)
         if type_ == "chemin" and rx.search(n): return cat, motif, dest
         if type_ == "dossier" and any(rx.search(d) for d in dossiers): return cat, "dossier:" + motif, dest
         if type_ == "nom" and rx.search(nom): return cat, motif, dest
-        if type_ == "ext" and chemin.lower().endswith(normaliser(motif)): return cat, motif, dest
+        if type_ == "ext" and rx is not None and chemin.lower().endswith(rx.pattern): return cat, motif, dest
     # Phase 2 : regles "contenu" seulement si rien n'a matche (evite de lire le
     # contenu de tous les fichiers, surtout les placeholders cloud lents)
-    for cat, type_, motif, dest in regles:
+    for cat, type_, motif, dest, rx in regles:
         if type_ != "contenu":
             continue
         ext = os.path.splitext(chemin)[1].lower()
@@ -121,7 +121,7 @@ def classer(chemin, racine, regles, defaut, chu_rx):
         texte = ""
         if ext in EXT_TEXTE_CLASSEMENT and 0 < taille <= MAX_CONTENU:
             texte = normaliser(extraire_texte(chemin, ext, MAX_CONTENU) or "")
-        if texte and motif_regex(motif).search(texte):
+        if texte and rx.search(texte):
             return cat, "contenu:" + motif, dest
     return "PAR_DEFAUT", "-", defaut
 
@@ -163,7 +163,7 @@ def main():
         inv = cands[-1]
     print(f"[*] Inventaire : {inv}")
 
-    regles = charger_regles(args.regles)
+    regles = [(cat, t, m, d, None if t == "ext" else motif_regex(m)) for cat, t, m, d in charger_regles(args.regles)]
     print(f"[*] {len(regles)} regles chargees depuis {args.regles}")
     chu_rx = chu_regex(args.chu_motifs)
     print(f"[*] Securite CHU/patients (motifs bloquants) : {args.chu_motifs}")
